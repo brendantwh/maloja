@@ -37,7 +37,7 @@ class CleanerAgent:
 
 
 
-	def fullclean(self,artist,title):
+	def fullclean(self,artist,title,album):
 		artists = self.parseArtists(self.removespecial(artist))
 		title = self.parseTitle(self.removespecial(title))
 		(title,moreartists) = self.parseTitleForArtists(title)
@@ -56,7 +56,11 @@ class CleanerAgent:
 		artists = list(set(artists))
 		artists.sort()
 
-		return (artists,title.strip())
+		if album is not None:
+			album = self.parseAlbumtitle(album)
+			album = album.strip()
+
+		return (artists,title.strip(),album)
 
 	def removespecial(self,s):
 		if isinstance(s,list):
@@ -194,6 +198,10 @@ class CleanerAgent:
 			return self.rules_replacealbumtitle[t.strip().lower()]
 
 		t = t.replace("[","(").replace("]",")")
+
+		if malojaconfig["ALBUM_TRIM"]:
+			t = t.replace(" - EP", "")
+			t = t.replace(" - Single", "")
 
 		t = t.strip()
 		return t
