@@ -40,7 +40,7 @@ class CleanerAgent:
 	def fullclean(self,artist,title,album):
 		artists = self.parseArtists(self.removespecial(artist))
 		title = self.parseTitle(self.removespecial(title))
-		(title,moreartists) = self.parseTitleForArtists(title)
+		(_,moreartists) = self.parseTitleForArtists(title)
 		artists += moreartists
 		if title.lower() in self.rules_addartists:
 			reqartists, allartists = self.rules_addartists[title.lower()]
