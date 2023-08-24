@@ -5,6 +5,7 @@
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="referrer" content="same-origin" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 		<title>{% block title %}{% endblock %}</title>
 		<meta name="description" content='Maloja is a self-hosted music scrobble server.' />
@@ -75,9 +76,12 @@
 					<a target="_blank" rel="noopener noreferrer" href="https://hub.docker.com/r/krateng/maloja">Dockerhub</a>
 				</span>-->
 				<span><a href="/about">About</a></span>
+				{% if adminmode %}
+				<span style="padding-left: 30px;"><a href="/ms">Multi-Scrobbler</a></span>
+				{% endif %}
 			</div>
 			<div>
-				<a href="/"><span style="font-weight:bold;">Maloja {% if settings["DEV_MODE"] %}[Developer Mode]{% endif %}</span></a>
+				<a href="/"><span style="font-weight:bold;">Maloja. {% if settings["DEV_MODE"] %}[Developer Mode]{% endif %}</span></a>
 			</div>
 			<div>
 				<span><input id="searchinput" placeholder="Search for an artist or track..." oninput="search(this)" onblur="clearresults()" /></span>
