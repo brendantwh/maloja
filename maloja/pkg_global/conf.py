@@ -150,16 +150,19 @@ malojaconfig = Configuration(
 		"Technical":{
 			"cache_expire_positive":(tp.Integer(),								"Image Cache Expiration", 				60,		"Days until images are refetched"),
 			"cache_expire_negative":(tp.Integer(),								"Image Cache Negative Expiration",		5,		"Days until failed image fetches are reattempted"),
-			"db_max_memory":(tp.Integer(min=0,max=100),							"RAM Percentage soft limit",			50,		"RAM Usage in percent at which Maloja should no longer increase its database cache."),
+			"db_max_memory":(tp.Integer(min=0,max=100),							"RAM Percentage soft limit",			70,		"RAM Usage in percent at which Maloja should no longer increase its database cache."),
 			"use_request_cache":(tp.Boolean(),									"Use request-local DB Cache",			False),
-			"use_global_cache":(tp.Boolean(),									"Use global DB Cache",					True)
+			"use_global_cache":(tp.Boolean(),									"Use global DB Cache",					True,	"This is vital for Maloja's performance. Do not disable this unless you have a strong reason to.")
 		},
 		"Fluff":{
-			"scrobbles_gold":(tp.Integer(),										"Scrobbles for Gold",			250,				"How many scrobbles a track needs to be considered 'Gold' status"),
-			"scrobbles_platinum":(tp.Integer(),									"Scrobbles for Platinum",		500,				"How many scrobbles a track needs to be considered 'Platinum' status"),
-			"scrobbles_diamond":(tp.Integer(),									"Scrobbles for Diamond",		1000,				"How many scrobbles a track needs to be considered 'Diamond' status"),
-			"name":(tp.String(),												"Name",							"Generic Maloja User"),
-			"album_trim":(tp.Boolean(),											"Trim album title",				False,				"Removes EP and Single from album titles (affects mainly Apple Music scrobbles)")
+			"scrobbles_gold":(tp.Integer(),										"Scrobbles for Gold (Track)",	250,				"How many scrobbles a track needs to be considered 'Gold' status"),
+			"scrobbles_platinum":(tp.Integer(),									"Scrobbles for Platinum (Track)",500,				"How many scrobbles a track needs to be considered 'Platinum' status"),
+			"scrobbles_diamond":(tp.Integer(),									"Scrobbles for Diamond (Track)",1000,				"How many scrobbles a track needs to be considered 'Diamond' status"),
+			"scrobbles_gold_album":(tp.Integer(),								"Scrobbles for Gold (Album)",	500,				"How many scrobbles an album needs to be considered 'Gold' status"),
+			"scrobbles_platinum_album":(tp.Integer(),							"Scrobbles for Platinum (Album)",750,				"How many scrobbles an album needs to be considered 'Platinum' status"),
+			"scrobbles_diamond_album":(tp.Integer(),							"Scrobbles for Diamond (Album)",1500,				"How many scrobbles an album needs to be considered 'Diamond' status"),
+			"name":(tp.String(),												"Name",							"Generic Maloja User")
+      "album_trim":(tp.Boolean(),											"Trim album title",				False,				"Removes EP and Single from album titles (affects mainly Apple Music scrobbles)")
 		},
 		"Third Party Services":{
 			"metadata_providers":(tp.List(tp.String()),							"Metadata Providers",			['lastfm','spotify','deezer','musicbrainz'],	"Which metadata providers should be used in what order. Musicbrainz is rate-limited and should not be used first."),
@@ -187,7 +190,9 @@ malojaconfig = Configuration(
 			"delimiters_informal":(tp.Set(tp.String()),							"Informal Delimiters",			["vs.","vs","&"],																			"Delimiters in informal artist strings with spaces expected around them"),
 			"delimiters_formal":(tp.Set(tp.String()),							"Formal Delimiters",			[";","/","|","␝","␞","␟"],																	"Delimiters used to tag multiple artists when only one tag field is available"),
 			"filters_remix":(tp.Set(tp.String()),								"Remix Filters",				["Remix", "Remix Edit", "Short Mix", "Extended Mix", "Soundtrack Version"],					"Filters used to recognize the remix artists in the title"),
-			"parse_remix_artists":(tp.Boolean(),								"Parse Remix Artists",			False)
+			"parse_remix_artists":(tp.Boolean(),								"Parse Remix Artists",			False),
+			"week_offset":(tp.Integer(),										"Week Begin Offset",			0,																							"Start of the week for the purpose of weekly statistics. 0 = Sunday, 6 = Saturday"),
+			"timezone":(tp.Integer(),											"UTC Offset",					0)
 		},
 		"Web Interface":{
 			"default_range_startpage":(tp.Choice({'alltime':'All Time','year':'Year','month':"Month",'week':'Week'}),	"Default Range for Startpage Stats",	"year"),
@@ -201,7 +206,6 @@ malojaconfig = Configuration(
 			"discourage_cpu_heavy_stats":(tp.Boolean(),							"Discourage CPU-heavy stats",	False,					"Prevent visitors from mindlessly clicking on CPU-heavy options. Does not actually disable them for malicious actors!"),
 			"use_local_images":(tp.Boolean(),									"Use Local Images",				True),
 			#"local_image_rotate":(tp.Integer(),									"Local Image Rotate",			3600),
-			"timezone":(tp.Integer(),											"UTC Offset",					0),
 			"time_format":(tp.String(),											"Time Format",					"%d. %b %Y %I:%M %p"),
 			"theme":(tp.String(),												"Theme",						"maloja")
 		}

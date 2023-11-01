@@ -1,9 +1,9 @@
 {% import 'snippets/links.jinja' as links %}
-{% import 'partials/awards_artist.jinja' as awards %}
+{% import 'partials/awards_artist.jinja' as awards with context %}
 
 
 {% set artist = filterkeys.artist %}
-{% set info = db.artist_info(artist=artist) %}
+{% set info = dbc.artist_info({'artist':artist}) %}
 {% set encodedartist = mlj_uri.uriencode({'artist':artist}) %}
 
 {% set credited = info.get('replace') %}
@@ -22,12 +22,12 @@
 		<td class="image">
 			{% if adminmode %}
 			<div
-				class="changeable-image" data-uploader="b64=>upload('{{ encodedartist }}',b64)"
-				style="background-image:url('{{ images.get_artist_image(artist) }}');"
+				class="shiny alwaysshiny changeable-image" data-uploader="b64=>upload('{{ encodedartist }}',b64)"
+				style="background-image:url('{{ images.get_artist_image(info.artist) }}');"
 				title="Drag & Drop to upload new image"
 			></div>
 			{% else %}
-			<div style="background-image:url('{{ images.get_artist_image(artist) }}');">
+			<div class="shiny alwaysshiny" style="background-image:url('{{ images.get_artist_image(artist) }}');">
 			</div>
 			{% endif %}
 		</td>
@@ -54,7 +54,7 @@
 				{{ awards.medals(info) }}
 				{{ awards.topweeks(info) }}
 			{% endif %}
-			{{ awards.certs(artist) }}
+			{{ awards.subcerts(artist) }}
 
 
 		</td>

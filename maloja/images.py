@@ -92,7 +92,9 @@ def get_image_from_cache(track_id=None,artist_id=None,album_id=None):
 		elif row.localproxyurl:
 			return {'type':'localurl','value':row.localproxyurl}
 		else:
-			return {'type':'url','value':row.url} # returns None as value if nonexistence cached
+			return {'type':'url','value':row.url or None}
+			# value none means nonexistence is cached
+			# for some reason this can also be an empty string, so use or None here to unify
 	return None # no cache entry
 
 def set_image_in_cache(url,track_id=None,artist_id=None,album_id=None,local=False):
@@ -135,8 +137,8 @@ def remove_image_from_cache(track_id=None,artist_id=None,album_id=None):
 			result = conn.execute(op).all()
 
 		for row in result:
-			targetpath = data_dir['cache']('images',row.localproxyurl.split('/')[-1])
 			try:
+				targetpath = data_dir['cache']('images',row.localproxyurl.split('/')[-1])
 				os.remove(targetpath)
 			except:
 				pass
@@ -160,7 +162,7 @@ def dl_image(url):
 
 
 
-resolver = ThreadPoolExecutor(max_workers=MAX_RESOLVE_THREADS)
+resolver = ThreadPoolExecutor(max_workers=MAX_RESOLVE_THREADS,thread_name_prefix='image_resolve')
 
 ### getting images for any website embedding now ALWAYS returns just the generic link
 ### even if we have already cached it, we will handle that on request
@@ -260,7 +262,7 @@ def resolve_image(artist_id=None,track_id=None,album_id=None):
 		elif album_id:
 			result = thirdparty.get_image_album_all((entity['artists'],entity['albumtitle']))
 
-		result = {'type':'url','value':result}
+		result = {'type':'url','value':result or None}
 		set_image_in_cache(artist_id=artist_id,track_id=track_id,album_id=album_id,url=result['value'])
 	finally:
 		with image_resolve_controller_lock:

@@ -33,26 +33,34 @@ def import_scrobbles(inputf):
 
 	filename = os.path.basename(inputf)
 
-	if re.match(".*\.csv",filename):
+	if re.match(r".*\.csv",filename):
 		typeid,typedesc = "lastfm","Last.fm"
 		importfunc = parse_lastfm
 
-	elif re.match("endsong_[0-9]+\.json",filename):
-		typeid,typedesc = "spotify","Spotify"
-		importfunc = parse_spotify_full
-
-	elif re.match("StreamingHistory[0-9]+\.json",filename):
+	elif re.match(r"Streaming_History_Audio.+\.json",filename):
 		typeid,typedesc = "spotify","Spotify"
 		importfunc = parse_spotify_lite
 
-	elif re.match("maloja_export_[0-9]+\.json",filename):
+	elif re.match(r"endsong_[0-9]+\.json",filename):
+		typeid,typedesc = "spotify","Spotify"
+		importfunc = parse_spotify
+
+	elif re.match(r"StreamingHistory[0-9]+\.json",filename):
+		typeid,typedesc = "spotify","Spotify"
+		importfunc = parse_spotify_lite_legacy
+
+	elif re.match(r"maloja_export[_0-9]*\.json",filename):
 		typeid,typedesc = "maloja","Maloja"
 		importfunc = parse_maloja
 
 	# username_lb-YYYY-MM-DD.json
-	elif re.match(".*_lb-[0-9-]+\.json",filename):
+	elif re.match(r".*_lb-[0-9-]+\.json",filename):
 		typeid,typedesc = "listenbrainz","ListenBrainz"
 		importfunc = parse_listenbrainz
+
+	elif re.match(r"\.scrobbler\.log",filename):
+		typeid,typedesc = "rockbox","Rockbox"
+		importfunc = parse_rockbox
 
 	else:
 		print("File",inputf,"could not be identified as a valid import source.")
@@ -91,7 +99,7 @@ def import_scrobbles(inputf):
 							"albumtitle":scrobble['album_name'],
 							"artists":scrobble.get('album_artists') or scrobble['track_artists'] or None
 							# TODO: use same heuristics as with parsing to determine album?
-						}
+						} if scrobble.get('album_name') else None
 				 	},
 				 	"duration":scrobble['scrobble_duration'],
 				 	"origin":"import:" + typeid,
@@ -123,9 +131,11 @@ def import_scrobbles(inputf):
 
 	return result
 
-def parse_spotify_lite(inputf):
+def parse_spotify_lite_legacy(inputf):
 	pth = os.path
-	inputfolder = pth.relpath(pth.dirname(pth.abspath(inputf)))
+	# use absolute paths internally for peace of mind. just change representation for console output
+	inputf = pth.abspath(inputf)
+	inputfolder = pth.dirname(inputf)
 	filenames = re.compile(r'StreamingHistory[0-9]+\.json')
 	inputfiles = [os.path.join(inputfolder,f) for f in os.listdir(inputfolder) if filenames.match(f)]
 
@@ -135,8 +145,9 @@ def parse_spotify_lite(inputf):
 
 	if inputfiles != [inputf]:
 		print("Spotify files should all be imported together to identify duplicates across the whole dataset.")
-		if not ask("Import " + ", ".join(col['yellow'](i) for i in inputfiles) + "?",default=True):
+		if not ask("Import " + ", ".join(col['yellow'](pth.basename(i)) for i in inputfiles) + "?",default=True):
 			inputfiles = [inputf]
+			print("Only importing", col['yellow'](pth.basename(inputf)))
 
 	for inputf in inputfiles:
 
@@ -173,9 +184,70 @@ def parse_spotify_lite(inputf):
 		print()
 
 
-def parse_spotify_full(inputf):
+def parse_spotify_lite(inputf):
 	pth = os.path
-	inputfolder = pth.relpath(pth.dirname(pth.abspath(inputf)))
+	# use absolute paths internally for peace of mind. just change representation for console output
+	inputf = pth.abspath(inputf)
+	inputfolder = pth.dirname(inputf)
+	filenames = re.compile(r'Streaming_History_Audio.+\.json')
+	inputfiles = [os.path.join(inputfolder,f) for f in os.listdir(inputfolder) if filenames.match(f)]
+
+	if len(inputfiles) == 0:
+		print("No files found!")
+		return
+
+	if inputfiles != [inputf]:
+		print("Spotify files should all be imported together to identify duplicates across the whole dataset.")
+		if not ask("Import " + ", ".join(col['yellow'](pth.basename(i)) for i in inputfiles) + "?",default=True):
+			inputfiles = [inputf]
+			print("Only importing", col['yellow'](pth.basename(inputf)))
+
+	for inputf in inputfiles:
+
+		print("Importing",col['yellow'](inputf),"...")
+		with open(inputf,'r') as inputfd:
+			data = json.load(inputfd)
+
+		for entry in data:
+
+			try:
+				played = int(entry['ms_played'] / 1000)
+				timestamp = int(
+					datetime.datetime.strptime(entry['ts'],"%Y-%m-%dT%H:%M:%SZ").timestamp()
+				)
+				artist = entry['master_metadata_album_artist_name'] # hmmm
+				title = entry['master_metadata_track_name']
+				album = entry['master_metadata_album_album_name']
+				albumartist = entry['master_metadata_album_artist_name']
+
+				if None in [title,artist]:
+					yield ('CONFIDENT_SKIP',None,f"{entry} has relevant fields set to null, skipping...")
+					continue
+
+				if played < 30:
+					yield ('CONFIDENT_SKIP',None,f"{entry} is shorter than 30 seconds, skipping...")
+					continue
+
+				yield ("CONFIDENT_IMPORT",{
+					'track_title':title,
+					'track_artists': artist,
+					'track_length': None,
+					'scrobble_time': timestamp,
+					'scrobble_duration':played,
+					'album_name': album,
+					'album_artist': albumartist
+				},'')
+			except Exception as e:
+				yield ('FAIL',None,f"{entry} could not be parsed. Scrobble not imported. ({repr(e)})")
+				continue
+
+		print()
+
+def parse_spotify(inputf):
+	pth = os.path
+	# use absolute paths internally for peace of mind. just change representation for console output
+	inputf = pth.abspath(inputf)
+	inputfolder = pth.dirname(inputf)
 	filenames = re.compile(r'endsong_[0-9]+\.json')
 	inputfiles = [os.path.join(inputfolder,f) for f in os.listdir(inputfolder) if filenames.match(f)]
 
@@ -185,8 +257,9 @@ def parse_spotify_full(inputf):
 
 	if inputfiles != [inputf]:
 		print("Spotify files should all be imported together to identify duplicates across the whole dataset.")
-		if not ask("Import " + ", ".join(col['yellow'](i) for i in inputfiles) + "?",default=True):
+		if not ask("Import " + ", ".join(col['yellow'](pth.basename(i)) for i in inputfiles) + "?",default=True):
 			inputfiles = [inputf]
+			print("Only importing", col['yellow'](pth.basename(inputf)))
 
 	# we keep timestamps here as well to remove duplicates because spotify's export
 	# is messy - this is specific to this import type and should not be mixed with
@@ -308,8 +381,6 @@ def parse_lastfm(inputf):
 					'scrobble_time': int(datetime.datetime.strptime(
 						time + '+0000',
 						"%d %b %Y %H:%M%z"
-						# lastfm exports have time in UTC
-						# some old imports might have the wrong time here!
 					).timestamp()),
 					'scrobble_duration':None
 				},'')
@@ -340,6 +411,33 @@ def parse_listenbrainz(inputf):
 			yield ('FAIL',None,f"{entry} could not be parsed. Scrobble not imported. ({repr(e)})")
 			continue
 
+def parse_rockbox(inputf):
+	with open(inputf,'r') as inputfd:
+		for line in inputfd.readlines():
+			if line == "#TZ/UNKNOWN":
+				use_local_time = True
+			elif line == "#TZ/UTC":
+				use_local_time = False
+			line = line.split("#")[0].split("\n")[0]
+			if line:
+				try:
+					artist,album,track,pos,duration,rate,timestamp,track_id, *_ = line.split("\t") + [None]
+					if rate == 'L':
+						yield ("CONFIDENT_IMPORT",{
+							'track_title':track,
+							'track_artists':artist,
+							'track_length':duration,
+							'album_name':album,
+							'scrobble_time':timestamp,
+							'scrobble_duration': None
+						},'')
+					else:
+						yield ('CONFIDENT_SKIP',None,f"{track} at {timestamp} is marked as skipped.")
+				except Exception as e:
+					yield ('FAIL',None,f"{line} could not be parsed. Scrobble not imported. ({repr(e)})")
+					continue
+
+
 def parse_maloja(inputf):
 
 	with open(inputf,'r') as inputfd:
@@ -353,7 +451,8 @@ def parse_maloja(inputf):
 				'track_title': s['track']['title'],
 				'track_artists': s['track']['artists'],
 				'track_length': s['track']['length'],
-				'album_name': s['track'].get('album',{}).get('name',''),
+				'album_name': s['track'].get('album',{}).get('albumtitle','') if s['track'].get('album') is not None else '',
+				'album_artists': s['track'].get('album',{}).get('artists',None) if s['track'].get('album') is not None else '',
 				'scrobble_time': s['time'],
 				'scrobble_duration': s['duration']
 			},'')

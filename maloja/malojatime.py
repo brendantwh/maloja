@@ -1,7 +1,7 @@
 from datetime import timezone, timedelta, date, time, datetime
 from calendar import monthrange
-from os.path import commonprefix
 import math
+from abc import ABC, abstractmethod
 
 from .pkg_global.conf import malojaconfig
 
@@ -28,7 +28,7 @@ def register_scrobbletime(timestamp):
 
 
 # Generic Time Range
-class MTRangeGeneric:
+class MTRangeGeneric(ABC):
 
 	# despite the above, ranges that refer to the exact same real time range should evaluate as equal
 	def __eq__(self,other):
@@ -67,6 +67,15 @@ class MTRangeGeneric:
 
 	def __contains__(self,timestamp):
 		return timestamp >= self.first_stamp() and timestamp <= self.last_stamp()
+
+	@abstractmethod
+	def first_stamp(self):
+		pass
+
+	@abstractmethod
+	def last_stamp(self):
+		pass
+
 
 # Any range that has one defining base unit, whether week, year, etc.
 class MTRangeSingular(MTRangeGeneric):
@@ -203,16 +212,15 @@ class MTRangeWeek(MTRangeSingular):
 	def __init__(self,year=None,week=None):
 
 		# do this so we can construct the week with overflow (eg 2020/-3)
-		thisisoyear_firstday = date.fromchrcalendar(year,1,1)
+		thisisoyear_firstday = date.fromisocalendar(year,1,1) + timedelta(days=malojaconfig['WEEK_OFFSET']-1)
 		self.firstday = thisisoyear_firstday + timedelta(days=7*(week-1))
-		self.firstday = date(self.firstday.year,self.firstday.month,self.firstday.day)
-		# for compatibility with pre python3.8 (https://bugs.python.org/issue32417)
-
 
 		self.lastday = self.firstday + timedelta(days=6)
 
 		# now get the actual year and week number (in case of overflow)
-		self.year,self.week,_ = self.firstday.chrcalendar()
+		fakedate = self.firstday - timedelta(days=malojaconfig['WEEK_OFFSET']-1)
+		# fake date that gives the correct iso return for the real date considering our week offset
+		self.year,self.week,_ = fakedate.isocalendar()
 
 
 
@@ -350,7 +358,9 @@ def today():
 def thisweek():
 	tod = datetime.now(tz=TIMEZONE)
 	tod = date(tod.year,tod.month,tod.day)
-	y,w,_ = tod.chrcalendar()
+	fakedate = tod - timedelta(days=malojaconfig['WEEK_OFFSET']-1)
+	# fake date for correct iso representation
+	y,w,_ = fakedate.isocalendar()
 	return MTRangeWeek(y,w)
 def thismonth():
 	tod = datetime.now(tz=TIMEZONE)
@@ -555,7 +565,9 @@ def year_from_timestamp(stamp):
 def week_from_timestamp(stamp):
 	dt = datetime.fromtimestamp(stamp,tz=TIMEZONE)
 	d = date(dt.year,dt.month,dt.day)
-	y,w,_ = d.chrcalendar()
+	fakedate = d - timedelta(days=malojaconfig['WEEK_OFFSET']-1)
+	# fake date for correct iso representation
+	y,w,_ = fakedate.isocalendar()
 	return MTRangeWeek(y,w)
 
 def from_timestamp(stamp,unit):

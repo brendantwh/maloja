@@ -30,13 +30,13 @@ def print_header_info():
 
 def get_instance():
 	try:
-		return int(subprocess.check_output(["pidof","maloja"]))
+		return int(subprocess.check_output(["pgrep","-f","maloja$"]))
 	except Exception:
 		return None
 
 def get_instance_supervisor():
 	try:
-		return int(subprocess.check_output(["pidof","maloja_supervisor"]))
+		return int(subprocess.check_output(["pgrep","-f","maloja_supervisor"]))
 	except Exception:
 		return None
 
@@ -130,7 +130,7 @@ def run_supervisor():
 def debug():
 	os.environ["MALOJA_DEV_MODE"] = 'true'
 	conf.malojaconfig.load_environment()
-	direct()
+	run_server()
 
 def print_info():
 	print_header_info()
@@ -141,12 +141,24 @@ def print_info():
 	print(col['lightblue']("Timezone:               "),f"UTC{conf.malojaconfig['timezone']:+d}")
 	print()
 	try:
-		import pkg_resources
+		from importlib.metadata import distribution
 		for pkg in ("sqlalchemy","waitress","bottle","doreah","jinja2"):
-			print(col['cyan']     (f"{pkg}:".ljust(13)),pkg_resources.get_distribution(pkg).version)
-	except ImportError:
+			print(col['cyan'](f"{pkg}:".ljust(13)),distribution(pkg).version)
+	except Exception:
 		print("Could not determine dependency versions.")
 	print()
+	try:
+		import platform
+		pyimpl = platform.python_implementation()
+		pyvers = '.'.join(platform.python_version_tuple())
+		print(col['magenta'](f"Python:".ljust(13)),pyimpl,pyvers)
+		osname = platform.system()
+		osvers = platform.release()
+		print(col['magenta'](f"OS:".ljust(13)),osname,osvers)
+		arch = platform.machine()
+		print(col['magenta'](f"Architecture:".ljust(13)),arch)
+	except Exception:
+		print("Could not determine system information.")
 
 @mainfunction({"l":"level","v":"version","V":"version"},flags=['version','include_images','prefer_existing'],shield=True)
 def main(*args,**kwargs):
@@ -172,7 +184,7 @@ def main(*args,**kwargs):
 	}
 
 	if "version" in kwargs:
-		print(info.VERSION)
+		print(pkginfo.VERSION)
 		return True
 	else:
 		try:

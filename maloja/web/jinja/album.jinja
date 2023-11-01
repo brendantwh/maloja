@@ -5,7 +5,6 @@
 
 {% block scripts %}
 	<script src="/statselect.js"></script>
-	<script src="/edit.js"></script>
 {% endblock %}
 
 {% set album = filterkeys.album %}
@@ -16,17 +15,31 @@
 
 {% set encodedalbum = mlj_uri.uriencode({'album':album}) %}
 
+{% block custombodyclasses %}
+    {% if info.certification %}certified certified_{{ info.certification }}{% endif %}
+{% endblock %}
+
 
 {% block icon_bar %}
 	{% if adminmode %}
 		{% include 'icons/edit.jinja' %}
+
+		<div class="iconsubset mergeicons" data-entity_type="album" data-entity_id="{{ info.id }}" data-entity_name="{{ info.album.albumtitle }}">
 		{% include 'icons/merge.jinja' %}
 		{% include 'icons/merge_mark.jinja' %}
+		{% include 'icons/merge_unmark.jinja' %}
 		{% include 'icons/merge_cancel.jinja' %}
+		</div>
+
+		<div class="iconsubset associateicons" data-entity_type="album" data-entity_id="{{ info.id }}" data-entity_name="{{ info.album.albumtitle }}">
 		{% include 'icons/add_album.jinja' %}
+		<!-- no remove album since that is not a specified association - every track only has one album, so the removal should
+		be handled on the track page (or for now, not at all) -->
 		{% include 'icons/association_mark.jinja' %}
+		{% include 'icons/association_unmark.jinja' %}
 		{% include 'icons/association_cancel.jinja' %}
-		<script>showValidMergeIcons();</script>
+		</div>
+
 	{% endif %}
 {% endblock %}
 
@@ -42,42 +55,7 @@
 {% import 'partials/awards_album.jinja' as awards %}
 
 
-<table class="top_info">
-	<tr>
-		<td class="image">
-			{% if adminmode %}
-			<div
-				class="changeable-image" data-uploader="b64=>upload('{{ encodedalbum }}',b64)"
-				style="background-image:url('{{ images.get_album_image(info.album) }}');"
-				title="Drag & Drop to upload new image"
-			></div>
-			{% else %}
-			<div style="background-image:url('{{ images.get_album_image(info.album) }}');">
-			</div>
-			{% endif %}
-		</td>
-		<td class="text">
-			<span>{{ links.links(album.artists) }}</span><br/>
-			<h1 id="main_entity_name" class="headerwithextra">{{ info.album.albumtitle | e }}</h1>
-				{# awards.certs(album) #}
-				<span class="rank"><a href="/charts_albums?max=100">#{{ info.position }}</a></span>
-				<br/>
-
-			<p class="stats">
-				<a href="{{ mlj_uri.create_uri("/scrobbles",filterkeys) }}">{{ info['scrobbles'] }} Scrobbles</a>
-			</p>
-
-
-
-
-
-			{{ awards.medals(info) }}
-			{{ awards.topweeks(info) }}
-
-
-		</td>
-	</tr>
-</table>
+{% include 'partials/info_album.jinja' %}
 
 <h2><a href='{{ mlj_uri.create_uri("/charts_tracks",filterkeys) }}'>Top Tracks</a></h2>
 

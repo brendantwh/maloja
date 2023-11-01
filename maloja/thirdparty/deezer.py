@@ -1,4 +1,5 @@
-from . import MetadataInterface
+from . import MetadataInterface, RateLimitExceeded
+
 
 class Deezer(MetadataInterface):
 	name = "Deezer"
@@ -18,7 +19,21 @@ class Deezer(MetadataInterface):
 		"required_settings": [],
 	}
 
+	delay = 1
+
 	def get_image_track(self,track):
 		return None
 		# we can use the album pic from the track search,
 		# but should do so via maloja logic
+
+
+	def handle_json_result_error(self,result):
+		if result.get('data') == []:
+			return True
+		if result.get('error',{}).get('code',None) == 4:
+			self.delay += 1
+			# this is permanent (for the lifetime of the process)
+			# but that's actually ok
+			# since hitting the rate limit means we are doing this too fast
+			# and these requests arent really time sensitive
+			raise RateLimitExceeded()

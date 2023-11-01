@@ -6,11 +6,10 @@
 
 {% block scripts %}
 	<script src="/statselect.js"></script>
-	<script src="/edit.js"></script>
 {% endblock %}
 
 {% set artist = filterkeys.artist %}
-{% set info = db.artist_info(artist=artist) %}
+{% set info = dbc.artist_info({'artist':artist}) %}
 
 {% set credited = info.get('replace') %}
 {% set included = info.get('associated') %}
@@ -27,14 +26,27 @@
 
 {% set encodedartist = mlj_uri.uriencode({'artist':artist}) %}
 
+{% block custombodyclasses %}
+    {% if info.certification %}certified certified_{{ info.certification }}{% endif %}
+{% endblock %}
+
 {% block icon_bar %}
 	{% if adminmode %}
 		{% include 'icons/edit.jinja' %}
+
+		<div class="iconsubset mergeicons" data-entity_type="artist" data-entity_id="{{ info.id }}" data-entity_name="{{ info.artist }}">
 		{% include 'icons/merge.jinja' %}
 		{% include 'icons/merge_mark.jinja' %}
+		{% include 'icons/merge_unmark.jinja' %}
 		{% include 'icons/merge_cancel.jinja' %}
+		</div>
+
+		<div class="iconsubset associateicons" data-entity_type="artist" data-entity_id="{{ info.id }}" data-entity_name="{{ info.artist }}">
 		{% include 'icons/add_artist.jinja' %}
-		<script>showValidMergeIcons();</script>
+		{% include 'icons/remove_artist.jinja' %}
+		{% include 'icons/association_cancel.jinja' %}
+		</div>
+
 	{% endif %}
 {% endblock %}
 
@@ -48,47 +60,7 @@
 
 
 
-<table class="top_info">
-	<tr>
-		<td class="image">
-			{% if adminmode %}
-			<div
-				class="changeable-image" data-uploader="b64=>upload('{{ encodedartist }}',b64)"
-				style="background-image:url('{{ images.get_artist_image(info.artist) }}');"
-				title="Drag & Drop to upload new image"
-			></div>
-			{% else %}
-			<div style="background-image:url('{{ images.get_artist_image(info.artist) }}');">
-			</div>
-			{% endif %}
-		</td>
-		<td class="text">
-			<h1 id="main_entity_name" class="headerwithextra">{{ info.artist | e }}</h1>
-				{% if competes and info['scrobbles']>0 %}<span class="rank"><a href="/charts_artists?max=100">#{{ info.position }}</a></span>{% endif %}
-				<br/>
-				{% if competes and included %}
-					<span>associated: {{ links.links(included) }}</span>
-				{% elif not competes %}
-					<span>Competing under {{ links.link(credited) }} (#{{ info.position }})</span>
-				{% endif %}
-
-			<p class="stats">
-				<a href="{{ mlj_uri.create_uri("/scrobbles",filterkeys) }}">{{ info['scrobbles'] }} Scrobbles</a>
-			</p>
-
-
-
-
-			{% if competes %}
-				{{ awards.medals(info) }}
-				{{ awards.topweeks(info) }}
-			{% endif %}
-			{{ awards.certs(artist) }}
-
-
-		</td>
-	</tr>
-</table>
+{% include 'partials/info_artist.jinja' %}
 
 
 {% set albums_info = dbc.get_albums_artist_appears_on(filterkeys,limitkeys) %}

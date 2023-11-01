@@ -1,9 +1,18 @@
 @import url("/grisons.css");
 
+:root {
+    --color-certified-diamond: 103, 161, 253;
+    --color-certified-platinum: 229, 228, 226;
+    --color-certified-gold: 255, 215, 0;
+
+    --color-rank-gold: var(--color-certified-gold);
+    --color-rank-silver: 192, 192, 192;
+    --color-rank-bronze: 205, 127, 50;
+}
 
 body {
 	padding:15px;
-	padding-bottom:35px;
+	padding-bottom:60px;
 	/**
 	padding-top:45px;
 	padding-bottom:25px;
@@ -11,6 +20,35 @@ body {
 /*
 	font-size:1.65vh;
 */
+}
+
+
+body.certified {
+    background: radial-gradient(circle at top left, rgba(var(--certification-color),0.5) 0%, var(--current-bg-color) 20%);
+    background-position: 0px 0px;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+    height:100%;
+}
+
+/* just make sure that whenever anything is certified, we set this variable.
+ how its used is the job of the specific elements */
+.certified_diamond {
+    --certification-color: var(--color-certified-diamond);
+}
+.certified_platinum{
+    --certification-color: var(--color-certified-platinum);
+}
+.certified_gold {
+    --certification-color: var(--color-certified-gold);
+}
+.certified_None {
+    --certification-color: none;
+    /* overwrite this for non-certified elements on certified pages (albums of artist) */
+}
+
+.certified.smallcerticon svg {
+    fill: rgba(var(--certification-color),1);
 }
 
 
@@ -67,6 +105,10 @@ div#icon_bar {
 	right:30px;
 	top:30px;
 }
+.iconsubset {
+	display: inline-block;
+	padding-left:20px;
+}
 
 div#icon_bar div.clickable_icon {
 	display: inline-block;
@@ -83,51 +125,165 @@ div.clickable_icon.danger:hover svg {
 	fill: red;
 }
 
+#icon_bar svg {
+	width:24px;
+	height:24px;
+}
+.list svg {
+	height:16px;
+}
+.list div.clickable_icon {
+	display: inline-block;
+}
 
+.list {
+	--color_bg_merge: rgba(0,0,90,0.7);
+	--color_fg_merge: lightblue;
+	--color_bg_associate: rgba(50,20,0,0.7);
+	--color_fg_associate: orange;
+}
+
+.list tr.marked_for_associate {
+	background-color: var(--color_bg_associate);
+	color: var(--color_fg_associate);
+}
+.list tr.marked_for_merge {
+	background-color: var(--color_bg_merge);
+	color: var(--color_fg_merge);;
+}
+
+@keyframes slideBackground {
+  0% {
+    background-position: 100% 0;
+  }
+	50% {
+		background-position: 0 0;
+	}
+  100% {
+    background-position: 100% 0;
+  }
+}
+@keyframes colorChange {
+  0% {
+    color: var(--color_fg_associate);
+  }
+  50% {
+    color: var(--color_fg_merge);
+  }
+  100% {
+    color: var(--color_fg_associate);
+  }
+}
+
+.list tr.marked_for_associate.marked_for_merge {
+	background: linear-gradient(to left, var(--color_bg_associate), var(--color_bg_merge));
+  background-size: 100% 100%;
+  animation: colorChange 4s infinite ease-in-out;
+}
+
+
+/* this is just to 'factor out' that big selector down there.
+we want icons to not be displayed in list rows, but show them with reduced opacity in the top bar */
+.list {
+	--display_inactive_icons: none;
+}
+#icon_bar {
+	--display_inactive_icons: inline-block;
+}
+
+.associateicons.marked_for_associate .associationmarkicon, /* already marked, cant mark again */
+.associateicons:not(.marked_for_associate) .associationunmarkicon, /* not marked, cant unmark */
+.associateicons:not(.somethingmarked_for_associate) .associatecancelicon, /* cant cancel when nothing is marked */
+.mergeicons.marked_for_merge #mergemarkicon, /* already marked, cant mark again */
+.mergeicons:not(.marked_for_merge) #mergeunmarkicon, /* not marked, cant unmark */
+.mergeicons:not(.somethingmarked_for_merge) #mergecancelicon, /* cant cancel when nothing is marked */
+.mergeicons:not(.somethingmarked_for_merge) #mergeicon, /* can't merge when nothing is selected */
+.mergeicons.marked_for_merge #mergeicon, /* cant merge into one of the things we have selected */
+.associateicons:not(.sources_marked_for_associate) #associatealbumicon,
+.associateicons:not(.sources_marked_for_associate) #associateartisticon,
+.associateicons:not(.sources_marked_for_associate) #removealbumicon,
+.associateicons:not(.sources_marked_for_associate) #removeartisticon /* nothing marked yet, can't associate with this */
+ {
+	pointer-events: none;
+	opacity:0.5;
+	display: var(--display_inactive_icons);
+}
 
 /**
 Footer
 **/
 
-div.footer {
+div#footer {
 	position:fixed;
+	bottom:0;
+	left:0;
+	right:0;
+	padding-left:20px;
+	padding-right:20px;
 	height:20px;
-	/**width:100%;**/
+
 	background-color: var(--base-color-dark);
-	bottom:0px;
-	left:0px;
-	right:0px;
+
+	display: flex;
+    align-items: center;
+
 	padding:10px;
 	opacity:1;
 }
 
-div.footer div:nth-child(1) {
-	display:inline-block;
-	width:40%;
-	text-align:left;
-}
-div.footer div:nth-child(2) {
-	display:inline-block;
-	width:19%;
-	text-align:center;
-	color:gold;
-	font-size:110%;
-}
-div.footer div:nth-child(3) {
-	display:inline-block;
-	width:40%;
-	text-align:right;
+#left-side, #right-side {
+  flex: 1;
 }
 
-div.footer span a {
-	/*padding-left:20px;*/
-	background-repeat:no-repeat;
-	background-size:contain;
-	background-position:left;
-	/*background-image:url("https://github.com/favicon.ico");*/
+#left-side {
+  text-align: left;
+  padding-left: 10px;
 }
 
-div.footer input {
+#right-side {
+  text-align: right;
+  padding-right: 10px;
+}
+
+#notch {
+
+   --notch-size: 70px;
+  background-color: var(--base-color-dark);
+  width: var(--notch-size);
+  height: var(--notch-size);
+  position: relative;
+  margin-top: -5px;
+  z-index: 1;
+
+  border-radius: 50%;
+  transform: translate(0%, -40%);
+}
+
+#notch img {
+  --notch-img-size: 80px;
+  position: absolute;
+  top: calc((var(--notch-size) - var(--notch-img-size)) / 2);
+  left: calc((var(--notch-size) - var(--notch-img-size)) / 2);
+
+  width: var(--notch-img-size);
+  height: auto;
+
+}
+#notch img:hover {
+    /*transform: scale(1.1);*/
+    animation: spin 4s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    } to {
+        transform: rotate(360deg);
+    }
+}
+
+
+div#footer input {
 	background-color:inherit;
 	border:0px;
 	border-bottom:1px solid beige;
@@ -141,7 +297,7 @@ div.footer input {
 	font-family:"Ubuntu";
 }
 
-div.footer input:focus {
+div#footer input:focus {
 	outline:none;
 	/**background-color:rgba(245,245,220,0.05);**/
 
@@ -221,38 +377,12 @@ div#notification_area div.notification:hover {
 
 @media (max-width: 1000px) {
 
-	div.footer {
-		position:fixed;
-		/*height:30px;*/
-		/**width:100%;**/
-		background-color: var(--base-color-dark);
-		bottom:0px;
-		left:0px;
-		right:0px;
-		padding:3px;
-		opacity:1;
-	}
-
-	div.footer div:nth-child(1) {
+	div#footer #left-side {
 		display:none;
 	}
-	div.footer div:nth-child(2) {
-		display:inline-block;
-		width:20%;
-		text-align:center;
-		color:gold;
-	}
-	div.footer div:nth-child(3) {
-		display:inline-block;
-		width:70%;
+	div#footer #right-side {
 		text-align:right;
 	}
-
-	div.footer input {
-
-		width:90%;
-	}
-
 
 }
 
@@ -390,11 +520,29 @@ h2.headerwithextra+span.afterheader {
 	padding:3px;
 	margin:2px;
 	border-radius:2px;
+	color:black;
+	--shine-color: 255, 255, 255;
+	background-color: rgba(var(--rank-color),1);
 }
+.medal.gold {
+    --rank-color: var(--color-rank-gold);
+}
+.medal.silver {
+    --rank-color: var(--color-rank-silver);
+}
+.medal.bronze {
+    --rank-color: var(--color-rank-bronze);
+}
+
 .shiny {
 	overflow: hidden;
 	position:relative;
 	display: inline-block;
+}
+
+.alwaysshiny {
+    /* alwaysshiny elements in general use the certification color for their shine */
+    --shine-color: var(--certification-color);
 }
 
 .shiny:after {
@@ -410,13 +558,14 @@ h2.headerwithextra+span.afterheader {
   background: rgba(255, 255, 255, 0.13);
   background: linear-gradient(
     to right,
-    rgba(255, 255, 255, 0.13) 0%,
-    rgba(255, 255, 255, 0.13) 77%,
-    rgba(255, 255, 255, 0.5) 92%,
-    rgba(255, 255, 255, 0.0) 100%
+    rgba(var(--shine-color), 0.0) 0%,
+    rgba(var(--shine-color), 0.13) 77%,
+    rgba(var(--shine-color), 0.5) 92%,
+    rgba(var(--shine-color), 0.0) 100%
+    /* shiny things just use the shine-color var, they are unaware of cert status directly */
   );
 }
-.shiny:hover:after {
+.shiny.hovershiny:hover:after {
   opacity: 1;
   top: -30%;
   left: -30%;
@@ -424,23 +573,32 @@ h2.headerwithextra+span.afterheader {
   transition-duration: 0.7s, 0.7s, 0.15s;
   transition-timing-function: ease;
 }
-.shiny:active:after {
+.shiny.hovershiny:active:after {
   opacity: 0;
 }
+.shiny.alwaysshiny:after {
+    animation: shiny 9s infinite linear;
+}
 
 
-a.gold {
-	background-color:gold;
-	color:black;
+@keyframes shiny {
+  0% {
+    top: -110%;
+    left: -210%;
+    opacity: 0;
+  }
+  50% {
+    top: -30%;
+    left: -30%;
+    opacity: 1;
+  }
+  100% {
+    top: -30%;
+    left: -30%;
+    opacity: 0;
+  }
 }
-a.silver {
-	background-color:silver;
-	color:black;
-}
-a.bronze {
-	background-color:#cd7f32;
-	color:black;
-}
+
 
 
 
@@ -515,12 +673,21 @@ table.twopart>tbody>tr>td {
 
 
 
+/* only on startpage for now, implement this for all tables??? */
+section table.list {
+	max-width: 100%;
+	width: 100%;
+	table-layout: fixed;
+}
+
 
 table.list {
 	border-collapse:collapse;
+
 }
 
 table.list tr {
+    --current-bg-color: transparent;
 	background-color: var(--current-bg-color);
 	border-color: var(--current-bg-color);
 	height: 1.45em;
@@ -560,13 +727,18 @@ table.list tr:hover {
 }
 
 table.list td.time {
-	width:11%;
+	width:9em;
 	color: var(--text-color-tertiary);
+}
+
+table.list td.timerange {
+	width:9em;
 }
 
 
 table.list tr td.rank {
 	padding-right: 4px;
+	width: 5em;
 
 }
 
@@ -601,8 +773,8 @@ table.list td.icon div {
 }
 
 table.list td.artists,td.artist,td.title,td.track {
-	min-width:100px;
-
+	min-width:500px;
+	max-width: 40em;
 
 }
 
@@ -732,6 +904,20 @@ table.list tr:hover td.bar div {
 	background-color: var(--text-color-focus);
 	cursor:pointer;
 }
+
+/* extra bar for associated */
+table.list td.bar a:nth-child(2) div {
+    opacity: 0.7;
+}
+table.list td.bar:hover a:nth-child(2) div {
+    /* when we start hovering over the bar, but not the associated part, go back to normal bg color */
+	background-color: var(--text-color);
+}
+table.list td.bar:hover a:nth-child(2) div:hover {
+    /* restore full color when hovering the associated part */
+    background-color: var(--text-color-focus);
+}
+
 
 table.list td.chart {
 	width:400px;

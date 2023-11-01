@@ -157,6 +157,7 @@ def connection_provider(func):
 					return func(*args,**kwargs)
 
 	wrapper.__innerfunc__ = func
+	wrapper.__name__ = f"CONPR_{func.__name__}"
 	return wrapper
 
 @connection_provider
@@ -322,6 +323,8 @@ def album_dict_to_db(info,dbconn=None):
 
 ##### Actual Database interactions
 
+# TODO: remove all resolve_id args and do that logic outside the caching to improve hit chances
+# TODO: maybe also factor out all intitial get entity funcs (some here, some in __init__) and throw exceptions
 
 @connection_provider
 def add_scrobble(scrobbledict,update_album=False,dbconn=None):
@@ -386,7 +389,15 @@ def add_track_to_album(track_id,album_id,replace=False,dbconn=None):
 	result = dbconn.execute(op)
 
 	invalidate_entity_cache() # because album info has changed
-	invalidate_caches() # changing album info of tracks will change album charts
+	#invalidate_caches() # changing album info of tracks will change album charts
+	# ARE YOU FOR REAL
+	# it just took me like 3 hours to figure out that this one line makes the artist page load slow because
+	# we call this func with every new scrobble that contains album info, even if we end up not changing the album
+	# of course i was always debugging with the manual scrobble button which just doesnt send any album info
+	# and because we expel all caches every single time, the artist page then needs to recalculate the weekly charts of
+	# ALL OF RECORDED HISTORY in order to display top weeks
+	# lmao
+	# TODO: figure out something better
 
 
 	return True
@@ -397,6 +408,14 @@ def add_tracks_to_albums(track_to_album_id_dict,replace=False,dbconn=None):
 	for track_id in track_to_album_id_dict:
 		add_track_to_album(track_id,track_to_album_id_dict[track_id],dbconn=dbconn)
 
+@connection_provider
+def remove_album(*track_ids,dbconn=None):
+
+	DB['tracks'].update().where(
+		DB['tracks'].c.track_id.in_(track_ids)
+	).values(
+		album_id=None
+	)
 
 ### these will 'get' the ID of an entity, creating it if necessary
 
@@ -431,7 +450,13 @@ def get_track_id(trackdict,create_new=True,update_album=False,dbconn=None):
 			if trackdict.get('album') and create_new:
 				# if we don't supply create_new, it means we just want to get info about a track
 				# which means no need to write album info, even if it was new
-				add_track_to_album(row.id,get_album_id(trackdict['album'],dbconn=dbconn),replace=update_album,dbconn=dbconn)
+				
+				# if we havent set update_album, we only want to assign the album in case the track
+				# has no album yet. this means we also only want to create a potentially new album in that case
+				album_id = get_album_id(trackdict['album'],create_new=(update_album or not row.album_id),dbconn=dbconn)
+				add_track_to_album(row.id,album_id,replace=update_album,dbconn=dbconn)
+
+
 			return row.id
 
 	if not create_new: return None
@@ -636,7 +661,36 @@ def add_artists_to_tracks(track_ids,artist_ids,dbconn=None):
 	])
 
 	result = dbconn.execute(op)
-	clean_db(dbconn=dbconn)
+
+	# the resulting tracks could now be duplicates of existing ones
+	# this also takes care of clean_db
+	merge_duplicate_tracks(dbconn=dbconn)
+
+	return True
+
+@connection_provider
+def remove_artists_from_tracks(track_ids,artist_ids,dbconn=None):
+
+	# only tracks that have at least one other artist
+	subquery = DB['trackartists'].select().where(
+		~DB['trackartists'].c.artist_id.in_(artist_ids)
+	).with_only_columns(
+		DB['trackartists'].c.track_id
+	).distinct().alias('sub')
+
+	op = DB['trackartists'].delete().where(
+		sql.and_(
+			DB['trackartists'].c.track_id.in_(track_ids),
+			DB['trackartists'].c.artist_id.in_(artist_ids),
+			DB['trackartists'].c.track_id.in_(subquery.select())
+		)
+	)
+
+	result = dbconn.execute(op)
+
+	# the resulting tracks could now be duplicates of existing ones
+	# this also takes care of clean_db
+	merge_duplicate_tracks(dbconn=dbconn)
 
 	return True
 
@@ -650,11 +704,33 @@ def add_artists_to_albums(album_ids,artist_ids,dbconn=None):
 	])
 
 	result = dbconn.execute(op)
-	clean_db(dbconn=dbconn)
+
+	# the resulting albums could now be duplicates of existing ones
+	# this also takes care of clean_db
+	merge_duplicate_albums(dbconn=dbconn)
 
 	return True
 
 
+@connection_provider
+def remove_artists_from_albums(album_ids,artist_ids,dbconn=None):
+
+	# no check here, albums are allowed to have zero artists
+
+	op = DB['albumartists'].delete().where(
+		sql.and_(
+			DB['albumartists'].c.album_id.in_(album_ids),
+			DB['albumartists'].c.artist_id.in_(artist_ids)
+		)
+	)
+
+	result = dbconn.execute(op)
+
+	# the resulting albums could now be duplicates of existing ones
+	# this also takes care of clean_db
+	merge_duplicate_albums(dbconn=dbconn)
+
+	return True
 
 ### Merge
 
@@ -763,21 +839,41 @@ def merge_albums(target_id,source_ids,dbconn=None):
 
 @cached_wrapper
 @connection_provider
-def get_scrobbles_of_artist(artist,since=None,to=None,resolve_references=True,dbconn=None):
+def get_scrobbles_of_artist(artist,since=None,to=None,resolve_references=True,limit=None,reverse=False,associated=False,dbconn=None):
 
 	if since is None: since=0
 	if to is None: to=now()
 
-	artist_id = get_artist_id(artist,dbconn=dbconn)
+	if associated:
+		artist_ids = get_associated_artists(artist,resolve_ids=False,dbconn=dbconn) + [get_artist_id(artist,create_new=False,dbconn=dbconn)]
+	else:
+		artist_ids = [get_artist_id(artist,create_new=False,dbconn=dbconn)]
+
 
 	jointable = sql.join(DB['scrobbles'],DB['trackartists'],DB['scrobbles'].c.track_id == DB['trackartists'].c.track_id)
 
 	op = jointable.select().where(
-		DB['scrobbles'].c.timestamp<=to,
-		DB['scrobbles'].c.timestamp>=since,
-		DB['trackartists'].c.artist_id==artist_id
-	).order_by(sql.asc('timestamp'))
+		DB['scrobbles'].c.timestamp.between(since,to),
+		DB['trackartists'].c.artist_id.in_(artist_ids)
+	)
+	if reverse:
+		op = op.order_by(sql.desc('timestamp'))
+	else:
+		op = op.order_by(sql.asc('timestamp'))
+	if limit:
+		op = op.limit(limit)
 	result = dbconn.execute(op).all()
+
+	# remove duplicates (multiple associated artists in the song, e.g. Irene & Seulgi being both counted as Red Velvet)
+	# distinct on doesn't seem to exist in sqlite
+	seen = set()
+	filtered_result = []
+	for row in result:
+		if row.timestamp not in seen:
+			filtered_result.append(row)
+			seen.add(row.timestamp)
+	result = filtered_result
+
 
 	if resolve_references:
 		result = scrobbles_db_to_dict(result,dbconn=dbconn)
@@ -786,18 +882,25 @@ def get_scrobbles_of_artist(artist,since=None,to=None,resolve_references=True,db
 
 @cached_wrapper
 @connection_provider
-def get_scrobbles_of_track(track,since=None,to=None,resolve_references=True,dbconn=None):
+def get_scrobbles_of_track(track,since=None,to=None,resolve_references=True,limit=None,reverse=False,dbconn=None):
 
 	if since is None: since=0
 	if to is None: to=now()
 
-	track_id = get_track_id(track,dbconn=dbconn)
+	track_id = get_track_id(track,create_new=False,dbconn=dbconn)
+
 
 	op = DB['scrobbles'].select().where(
 		DB['scrobbles'].c.timestamp<=to,
 		DB['scrobbles'].c.timestamp>=since,
 		DB['scrobbles'].c.track_id==track_id
-	).order_by(sql.asc('timestamp'))
+	)
+	if reverse:
+		op = op.order_by(sql.desc('timestamp'))
+	else:
+		op = op.order_by(sql.asc('timestamp'))
+	if limit:
+		op = op.limit(limit)
 	result = dbconn.execute(op).all()
 
 	if resolve_references:
@@ -807,12 +910,12 @@ def get_scrobbles_of_track(track,since=None,to=None,resolve_references=True,dbco
 
 @cached_wrapper
 @connection_provider
-def get_scrobbles_of_album(album,since=None,to=None,resolve_references=True,dbconn=None):
+def get_scrobbles_of_album(album,since=None,to=None,resolve_references=True,limit=None,reverse=False,dbconn=None):
 
 	if since is None: since=0
 	if to is None: to=now()
 
-	album_id = get_album_id(album,dbconn=dbconn)
+	album_id = get_album_id(album,create_new=False,dbconn=dbconn)
 
 	jointable = sql.join(DB['scrobbles'],DB['tracks'],DB['scrobbles'].c.track_id == DB['tracks'].c.id)
 
@@ -820,7 +923,13 @@ def get_scrobbles_of_album(album,since=None,to=None,resolve_references=True,dbco
 		DB['scrobbles'].c.timestamp<=to,
 		DB['scrobbles'].c.timestamp>=since,
 		DB['tracks'].c.album_id==album_id
-	).order_by(sql.asc('timestamp'))
+	)
+	if reverse:
+		op = op.order_by(sql.desc('timestamp'))
+	else:
+		op = op.order_by(sql.asc('timestamp'))
+	if limit:
+		op = op.limit(limit)
 	result = dbconn.execute(op).all()
 
 	if resolve_references:
@@ -830,20 +939,30 @@ def get_scrobbles_of_album(album,since=None,to=None,resolve_references=True,dbco
 
 @cached_wrapper
 @connection_provider
-def get_scrobbles(since=None,to=None,resolve_references=True,dbconn=None):
+def get_scrobbles(since=None,to=None,resolve_references=True,limit=None,reverse=False,dbconn=None):
+
 
 	if since is None: since=0
 	if to is None: to=now()
 
 	op = DB['scrobbles'].select().where(
-		DB['scrobbles'].c.timestamp<=to,
-		DB['scrobbles'].c.timestamp>=since,
-	).order_by(sql.asc('timestamp'))
+		DB['scrobbles'].c.timestamp.between(since,to)
+	)
+	if reverse:
+		op = op.order_by(sql.desc('timestamp'))
+	else:
+		op = op.order_by(sql.asc('timestamp'))
+	if limit:
+		op = op.limit(limit)
+
+
 	result = dbconn.execute(op).all()
 
 	if resolve_references:
 		result = scrobbles_db_to_dict(result,dbconn=dbconn)
 	#result = [scrobble_db_to_dict(row,resolve_references=resolve_references) for i,row in enumerate(result) if i<max]
+
+
 	return result
 
 
@@ -856,8 +975,7 @@ def get_scrobbles_num(since=None,to=None,dbconn=None):
 	if to is None: to=now()
 
 	op = sql.select(sql.func.count()).select_from(DB['scrobbles']).where(
-		DB['scrobbles'].c.timestamp<=to,
-		DB['scrobbles'].c.timestamp>=since,
+		DB['scrobbles'].c.timestamp.between(since,to)
 	)
 	result = dbconn.execute(op).all()
 
@@ -907,11 +1025,20 @@ def get_tracks(dbconn=None):
 
 	return tracks_db_to_dict(result,dbconn=dbconn)
 
+@cached_wrapper
+@connection_provider
+def get_albums(dbconn=None):
+
+	op = DB['albums'].select()
+	result = dbconn.execute(op).all()
+
+	return albums_db_to_dict(result,dbconn=dbconn)
+
 ### functions that count rows for parameters
 
 @cached_wrapper
 @connection_provider
-def count_scrobbles_by_artist(since,to,resolve_ids=True,dbconn=None):
+def count_scrobbles_by_artist(since,to,associated=True,resolve_ids=True,dbconn=None):
 	jointable = sql.join(
 		DB['scrobbles'],
 		DB['trackartists'],
@@ -924,26 +1051,35 @@ def count_scrobbles_by_artist(since,to,resolve_ids=True,dbconn=None):
 		DB['trackartists'].c.artist_id == DB['associated_artists'].c.source_artist,
 		isouter=True
 	)
+
+	if associated:
+		artistselect = sql.func.coalesce(DB['associated_artists'].c.target_artist,DB['trackartists'].c.artist_id)
+	else:
+		artistselect = DB['trackartists'].c.artist_id
+
 	op = sql.select(
 		sql.func.count(sql.func.distinct(DB['scrobbles'].c.timestamp)).label('count'),
 		# only count distinct scrobbles - because of artist replacement, we could end up
 		# with two artists of the same scrobble counting it twice for the same artist
 		# e.g. Irene and Seulgi adding two scrobbles to Red Velvet for one real scrobble
-		sql.func.coalesce(DB['associated_artists'].c.target_artist,DB['trackartists'].c.artist_id).label('artist_id')
+		artistselect.label('artist_id'),
 		# use the replaced artist as artist to count if it exists, otherwise original one
+		sql.func.sum(
+			sql.case((DB['trackartists'].c.artist_id == artistselect, 1), else_=0)
+		).label('really_by_this_artist')
+		# also select the original artist in any case as a separate column
 	).select_from(jointable2).where(
-		DB['scrobbles'].c.timestamp<=to,
-		DB['scrobbles'].c.timestamp>=since
+		DB['scrobbles'].c.timestamp.between(since,to)
 	).group_by(
-		sql.func.coalesce(DB['associated_artists'].c.target_artist,DB['trackartists'].c.artist_id)
+		artistselect
 	).order_by(sql.desc('count'))
 	result = dbconn.execute(op).all()
 
 	if resolve_ids:
 		artists = get_artists_map([row.artist_id for row in result],dbconn=dbconn)
-		result = [{'scrobbles':row.count,'artist':artists[row.artist_id]} for row in result]
+		result = [{'scrobbles':row.count,'real_scrobbles':row.really_by_this_artist,'artist':artists[row.artist_id],'artist_id':row.artist_id} for row in result]
 	else:
-		result = [{'scrobbles':row.count,'artist_id':row.artist_id} for row in result]
+		result = [{'scrobbles':row.count,'real_scrobbles':row.really_by_this_artist,'artist_id':row.artist_id} for row in result]
 	result = rank(result,key='scrobbles')
 	return result
 
@@ -963,7 +1099,7 @@ def count_scrobbles_by_track(since,to,resolve_ids=True,dbconn=None):
 
 	if resolve_ids:
 		tracks = get_tracks_map([row.track_id for row in result],dbconn=dbconn)
-		result = [{'scrobbles':row.count,'track':tracks[row.track_id]} for row in result]
+		result = [{'scrobbles':row.count,'track':tracks[row.track_id],'track_id':row.track_id} for row in result]
 	else:
 		result = [{'scrobbles':row.count,'track_id':row.track_id} for row in result]
 	result = rank(result,key='scrobbles')
@@ -991,19 +1127,85 @@ def count_scrobbles_by_album(since,to,resolve_ids=True,dbconn=None):
 
 	if resolve_ids:
 		albums = get_albums_map([row.album_id for row in result],dbconn=dbconn)
-		result = [{'scrobbles':row.count,'album':albums[row.album_id]} for row in result]
+		result = [{'scrobbles':row.count,'album':albums[row.album_id],'album_id':row.album_id} for row in result]
 	else:
 		result = [{'scrobbles':row.count,'album_id':row.album_id} for row in result]
 	result = rank(result,key='scrobbles')
 	return result
 
+
+# get ALL albums the artist is in any way related to and rank them by TBD
+@cached_wrapper
+@connection_provider
+def count_scrobbles_by_album_combined(since,to,artist,associated=False,resolve_ids=True,dbconn=None):
+
+	if associated:
+		artist_ids = get_associated_artists(artist,resolve_ids=False,dbconn=dbconn) + [get_artist_id(artist,dbconn=dbconn)]
+	else:
+		artist_ids = [get_artist_id(artist,dbconn=dbconn)]
+
+	# get all tracks that either have a relevant trackartist
+	# or are on an album with a relevant albumartist
+	op1 = sql.select(DB['tracks'].c.id).select_from(
+		sql.join(
+			sql.join(
+				DB['tracks'],
+				DB['trackartists'],
+				DB['tracks'].c.id == DB['trackartists'].c.track_id
+			),
+			DB['albumartists'],
+			DB['tracks'].c.album_id == DB['albumartists'].c.album_id,
+			isouter=True
+		)
+	).where(
+		DB['tracks'].c.album_id.is_not(None), # tracks without albums don't matter
+		sql.or_(
+			DB['trackartists'].c.artist_id.in_(artist_ids),
+			DB['albumartists'].c.artist_id.in_(artist_ids)
+		)
+	)
+	relevant_tracks = dbconn.execute(op1).all()
+	relevant_track_ids = set(row.id for row in relevant_tracks)
+	#for row in relevant_tracks:
+	#	print(get_track(row.id))
+
+	op2 = sql.select(
+		sql.func.count(sql.func.distinct(DB['scrobbles'].c.timestamp)).label('count'),
+		DB['tracks'].c.album_id
+	).select_from(
+		sql.join(
+			DB['scrobbles'],
+			DB['tracks'],
+			DB['scrobbles'].c.track_id == DB['tracks'].c.id
+		)
+	).where(
+		DB['scrobbles'].c.timestamp.between(since,to),
+		DB['scrobbles'].c.track_id.in_(relevant_track_ids)
+	).group_by(DB['tracks'].c.album_id).order_by(sql.desc('count'))
+	result = dbconn.execute(op2).all()
+
+	if resolve_ids:
+		albums = get_albums_map([row.album_id for row in result],dbconn=dbconn)
+		result = [{'scrobbles':row.count,'album':albums[row.album_id],'album_id':row.album_id} for row in result]
+	else:
+		result = [{'scrobbles':row.count,'album_id':row.album_id} for row in result]
+	result = rank(result,key='scrobbles')
+
+	#from pprint import pprint
+	#pprint(result)
+	return result
+
+
 @cached_wrapper
 @connection_provider
 # this ranks the albums of that artist, not albums the artist appears on - even scrobbles
 # of tracks the artist is not part of!
-def count_scrobbles_by_album_of_artist(since,to,artist,resolve_ids=True,dbconn=None):
+def count_scrobbles_by_album_of_artist(since,to,artist,associated=False,resolve_ids=True,dbconn=None):
 
-	artist_id = get_artist_id(artist,dbconn=dbconn)
+	if associated:
+		artist_ids = get_associated_artists(artist,resolve_ids=False,dbconn=dbconn) + [get_artist_id(artist,dbconn=dbconn)]
+	else:
+		artist_ids = [get_artist_id(artist,dbconn=dbconn)]
 
 	jointable = sql.join(
 		DB['scrobbles'],
@@ -1022,13 +1224,13 @@ def count_scrobbles_by_album_of_artist(since,to,artist,resolve_ids=True,dbconn=N
 	).select_from(jointable2).where(
 		DB['scrobbles'].c.timestamp<=to,
 		DB['scrobbles'].c.timestamp>=since,
-		DB['albumartists'].c.artist_id == artist_id
+		DB['albumartists'].c.artist_id.in_(artist_ids)
 	).group_by(DB['tracks'].c.album_id).order_by(sql.desc('count'))
 	result = dbconn.execute(op).all()
 
 	if resolve_ids:
 		albums = get_albums_map([row.album_id for row in result],dbconn=dbconn)
-		result = [{'scrobbles':row.count,'album':albums[row.album_id]} for row in result]
+		result = [{'scrobbles':row.count,'album':albums[row.album_id],'album_id':row.album_id} for row in result]
 	else:
 		result = [{'scrobbles':row.count,'album_id':row.album_id} for row in result]
 	result = rank(result,key='scrobbles')
@@ -1038,9 +1240,12 @@ def count_scrobbles_by_album_of_artist(since,to,artist,resolve_ids=True,dbconn=N
 @connection_provider
 # this ranks the tracks of that artist by the album they appear on - even when the album
 # is not the artist's
-def count_scrobbles_of_artist_by_album(since,to,artist,resolve_ids=True,dbconn=None):
+def count_scrobbles_of_artist_by_album(since,to,artist,associated=False,resolve_ids=True,dbconn=None):
 
-	artist_id = get_artist_id(artist,dbconn=dbconn)
+	if associated:
+		artist_ids = get_associated_artists(artist,resolve_ids=False,dbconn=dbconn) + [get_artist_id(artist,dbconn=dbconn)]
+	else:
+		artist_ids = [get_artist_id(artist,dbconn=dbconn)]
 
 	jointable = sql.join(
 		DB['scrobbles'],
@@ -1059,13 +1264,13 @@ def count_scrobbles_of_artist_by_album(since,to,artist,resolve_ids=True,dbconn=N
 	).select_from(jointable2).where(
 		DB['scrobbles'].c.timestamp<=to,
 		DB['scrobbles'].c.timestamp>=since,
-		DB['trackartists'].c.artist_id == artist_id
+		DB['trackartists'].c.artist_id.in_(artist_ids)
 	).group_by(DB['tracks'].c.album_id).order_by(sql.desc('count'))
 	result = dbconn.execute(op).all()
 
 	if resolve_ids:
 		albums = get_albums_map([row.album_id for row in result],dbconn=dbconn)
-		result = [{'scrobbles':row.count,'album':albums[row.album_id]} for row in result]
+		result = [{'scrobbles':row.count,'album':albums[row.album_id],'album_id':row.album_id} for row in result if row.album_id]
 	else:
 		result = [{'scrobbles':row.count,'album_id':row.album_id} for row in result]
 	result = rank(result,key='scrobbles')
@@ -1074,9 +1279,12 @@ def count_scrobbles_of_artist_by_album(since,to,artist,resolve_ids=True,dbconn=N
 
 @cached_wrapper
 @connection_provider
-def count_scrobbles_by_track_of_artist(since,to,artist,resolve_ids=True,dbconn=None):
+def count_scrobbles_by_track_of_artist(since,to,artist,associated=False,resolve_ids=True,dbconn=None):
 
-	artist_id = get_artist_id(artist,dbconn=dbconn)
+	if associated:
+		artist_ids = get_associated_artists(artist,resolve_ids=False,dbconn=dbconn) + [get_artist_id(artist,dbconn=dbconn)]
+	else:
+		artist_ids = [get_artist_id(artist,dbconn=dbconn)]
 
 	jointable = sql.join(
 		DB['scrobbles'],
@@ -1090,14 +1298,14 @@ def count_scrobbles_by_track_of_artist(since,to,artist,resolve_ids=True,dbconn=N
 	).select_from(jointable).filter(
 		DB['scrobbles'].c.timestamp<=to,
 		DB['scrobbles'].c.timestamp>=since,
-		DB['trackartists'].c.artist_id==artist_id
+		DB['trackartists'].c.artist_id.in_(artist_ids)
 	).group_by(DB['scrobbles'].c.track_id).order_by(sql.desc('count'))
 	result = dbconn.execute(op).all()
 
 
 	if resolve_ids:
 		tracks = get_tracks_map([row.track_id for row in result],dbconn=dbconn)
-		result = [{'scrobbles':row.count,'track':tracks[row.track_id]} for row in result]
+		result = [{'scrobbles':row.count,'track':tracks[row.track_id],'track_id':row.track_id} for row in result]
 	else:
 		result = [{'scrobbles':row.count,'track_id':row.track_id} for row in result]
 	result = rank(result,key='scrobbles')
@@ -1108,7 +1316,7 @@ def count_scrobbles_by_track_of_artist(since,to,artist,resolve_ids=True,dbconn=N
 @connection_provider
 def count_scrobbles_by_track_of_album(since,to,album,resolve_ids=True,dbconn=None):
 
-	album_id = get_album_id(album,dbconn=dbconn)
+	album_id = get_album_id(album,dbconn=dbconn) if album else None
 
 	jointable = sql.join(
 		DB['scrobbles'],
@@ -1129,7 +1337,7 @@ def count_scrobbles_by_track_of_album(since,to,album,resolve_ids=True,dbconn=Non
 
 	if resolve_ids:
 		tracks = get_tracks_map([row.track_id for row in result],dbconn=dbconn)
-		result = [{'scrobbles':row.count,'track':tracks[row.track_id]} for row in result]
+		result = [{'scrobbles':row.count,'track':tracks[row.track_id],'track_id':row.track_id} for row in result]
 	else:
 		result = [{'scrobbles':row.count,'track_id':row.track_id} for row in result]
 	result = rank(result,key='scrobbles')
@@ -1301,7 +1509,7 @@ def get_albums_map(album_ids,dbconn=None):
 
 @cached_wrapper
 @connection_provider
-def get_associated_artists(*artists,dbconn=None):
+def get_associated_artists(*artists,resolve_ids=True,dbconn=None):
 	artist_ids = [get_artist_id(a,dbconn=dbconn) for a in artists]
 
 	jointable = sql.join(
@@ -1319,8 +1527,51 @@ def get_associated_artists(*artists,dbconn=None):
 	)
 	result = dbconn.execute(op).all()
 
-	artists = artists_db_to_dict(result,dbconn=dbconn)
-	return artists
+	if resolve_ids:
+		artists = artists_db_to_dict(result,dbconn=dbconn)
+		return artists
+	else:
+		return [a.id for a in result]
+
+@cached_wrapper
+@connection_provider
+def get_associated_artist_map(artists=[],artist_ids=None,resolve_ids=True,dbconn=None):
+
+	ids_supplied = (artist_ids is not None)
+
+	if not ids_supplied:
+		artist_ids = [get_artist_id(a,dbconn=dbconn) for a in artists]
+
+
+	jointable = sql.join(
+		DB['associated_artists'],
+		DB['artists'],
+		DB['associated_artists'].c.source_artist == DB['artists'].c.id
+	)
+
+	# we need to select to avoid multiple 'id' columns that will then
+	# be misinterpreted by the row-dict converter
+	op = sql.select(
+		DB['artists'],
+		DB['associated_artists'].c.target_artist
+	).select_from(jointable).where(
+		DB['associated_artists'].c.target_artist.in_(artist_ids)
+	)
+	result = dbconn.execute(op).all()
+
+	artists_to_associated = {a_id:[] for a_id in artist_ids}
+	for row in result:
+		if resolve_ids:
+			artists_to_associated[row.target_artist].append(artists_db_to_dict([row],dbconn=dbconn)[0])
+		else:
+			artists_to_associated[row.target_artist].append(row.id)
+
+	if not ids_supplied:
+		# if we supplied the artists, we want to convert back for the result
+		artists_to_associated = {artists[artist_ids.index(k)]:v for k,v in artists_to_associated.items()}
+
+	return artists_to_associated
+
 
 @cached_wrapper
 @connection_provider
@@ -1492,10 +1743,15 @@ def renormalize_names():
 
 
 @connection_provider
-def merge_duplicate_tracks(artist_id,dbconn=None):
+def merge_duplicate_tracks(artist_id=None,dbconn=None):
+
+	affected_track_conditions = []
+	if artist_id:
+		affected_track_conditions = [DB['trackartists'].c.artist_id == artist_id]
+
 	rows = dbconn.execute(
 		DB['trackartists'].select().where(
-			DB['trackartists'].c.artist_id == artist_id
+			*affected_track_conditions
 		)
 	)
 	affected_tracks = [r.track_id for r in rows]
@@ -1528,10 +1784,15 @@ def merge_duplicate_tracks(artist_id,dbconn=None):
 
 
 @connection_provider
-def merge_duplicate_albums(artist_id,dbconn=None):
+def merge_duplicate_albums(artist_id=None,dbconn=None):
+
+	affected_album_conditions = []
+	if artist_id:
+		affected_album_conditions = [DB['albumartists'].c.artist_id == artist_id]
+
 	rows = dbconn.execute(
 		DB['albumartists'].select().where(
-			DB['albumartists'].c.artist_id == artist_id
+			*affected_album_conditions
 		)
 	)
 	affected_albums = [r.album_id for r in rows]

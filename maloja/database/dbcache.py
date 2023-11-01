@@ -43,6 +43,7 @@ if malojaconfig['USE_GLOBAL_CACHE']:
 				conn = None
 			global hits, misses
 			key = (serialize(args),serialize(kwargs), inner_func, kwargs.get("since"), kwargs.get("to"))
+			# TODO: also factor in default values to get better chance of hits
 
 			try:
 				return cache[key]
@@ -50,6 +51,8 @@ if malojaconfig['USE_GLOBAL_CACHE']:
 				result = inner_func(*args,**kwargs,dbconn=conn)
 				cache[key] = result
 				return result
+
+		outer_func.__name__ = f"CACHD_{inner_func.__name__}"
 
 		return outer_func
 
@@ -134,7 +137,7 @@ else:
 def serialize(obj):
 	try:
 		return serialize(obj.hashable())
-	except Exception:
+	except AttributeError:
 		try:
 			return json.dumps(obj)
 		except Exception:
