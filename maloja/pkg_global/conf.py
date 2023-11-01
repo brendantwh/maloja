@@ -161,8 +161,8 @@ malojaconfig = Configuration(
 			"scrobbles_gold_album":(tp.Integer(),								"Scrobbles for Gold (Album)",	500,				"How many scrobbles an album needs to be considered 'Gold' status"),
 			"scrobbles_platinum_album":(tp.Integer(),							"Scrobbles for Platinum (Album)",750,				"How many scrobbles an album needs to be considered 'Platinum' status"),
 			"scrobbles_diamond_album":(tp.Integer(),							"Scrobbles for Diamond (Album)",1500,				"How many scrobbles an album needs to be considered 'Diamond' status"),
-			"name":(tp.String(),												"Name",							"Generic Maloja User")
-      "album_trim":(tp.Boolean(),											"Trim album title",				False,				"Removes EP and Single from album titles (affects mainly Apple Music scrobbles)")
+			"name":(tp.String(),												"Name",							"Generic Maloja User"),
+      		"album_trim":(tp.Boolean(),											"Trim album title",				False,				"Removes EP and Single from album titles (affects mainly Apple Music scrobbles)")
 		},
 		"Third Party Services":{
 			"metadata_providers":(tp.List(tp.String()),							"Metadata Providers",			['lastfm','spotify','deezer','musicbrainz'],	"Which metadata providers should be used in what order. Musicbrainz is rate-limited and should not be used first."),
