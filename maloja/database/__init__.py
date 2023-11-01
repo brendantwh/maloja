@@ -152,7 +152,7 @@ def rawscrobble_to_scrobbledict(rawscrobble, fix=True, client=None):
 	# raw scrobble to processed info
 	scrobbleinfo = {**rawscrobble}
 	if fix:
-		scrobbleinfo['track_artists'],scrobbleinfo['track_title'] = cla.fullclean(scrobbleinfo['track_artists'],scrobbleinfo['track_title'])
+		scrobbleinfo['track_artists'],scrobbleinfo['track_title'],scrobbleinfo['album_title'] = cla.fullclean(scrobbleinfo['track_artists'],scrobbleinfo['track_title'],scrobbleinfo['album_title'])
 		if scrobbleinfo.get('album_artists'):
 			scrobbleinfo['album_artists'] = cla.parseArtists(scrobbleinfo['album_artists'])
 		if scrobbleinfo.get("album_title"):

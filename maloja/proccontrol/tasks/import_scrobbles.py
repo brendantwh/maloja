@@ -84,7 +84,7 @@ def import_scrobbles(inputf):
 			timestamps.add(scrobble['scrobble_time'])
 
 			# clean up
-			(scrobble['track_artists'],scrobble['track_title']) = c.fullclean(scrobble['track_artists'],scrobble['track_title'])
+			(scrobble['track_artists'],scrobble['track_title'],scrobble['album_name']) = c.fullclean(scrobble['track_artists'],scrobble['track_title'],scrobble.get('album_name'))
 
 			# extra info
 			extrainfo = {}
@@ -96,7 +96,7 @@ def import_scrobbles(inputf):
 				 		"title":scrobble['track_title'],
 				 		"length":scrobble['track_length'],
 						"album":{
-							"albumtitle":scrobble.get('album_name') or None,
+							"albumtitle":scrobble['album_name'],
 							"artists":scrobble.get('album_artists') or scrobble['track_artists'] or None
 							# TODO: use same heuristics as with parsing to determine album?
 						} if scrobble.get('album_name') else None
