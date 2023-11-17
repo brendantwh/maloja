@@ -17,9 +17,11 @@ AUX_MODE = True
 # DIRECRORY_CONFIG, DIRECRORY_STATE, DIRECTORY_LOGS and DIRECTORY_CACHE
 # config can only be determined by environment variable, the others can be loaded
 # from the config files
-# explicit settings will always be respected, fallback to default
 
-# if default isn't usable, and config writable, find alternative and fix it in settings
+# we don't specify 'default' values in the normal sense of the config object
+# the default is none, meaning the app should figure it out (depending on environment)
+# the actual 'default' values of our folders are simply in code since they are dependent on environment (container?)
+# and we need to actually distinguish them from the user having specified something
 
 # USEFUL FUNCS
 pthj = os.path.join
@@ -40,7 +42,10 @@ def get_env_vars(key,pathsuffix=[]):
 
 directory_info = {
 	"config":{
-		"sentinel":"rules",
+		"sentinel":".maloja_config_sentinel",
+		"possible_folders_container":[
+			"/config/config"
+		],
 		"possible_folders":[
 			"/etc/maloja",
 			os.path.expanduser("~/.local/share/maloja")
@@ -48,15 +53,22 @@ directory_info = {
 		"setting":"directory_config"
 	},
 	"cache":{
-		"sentinel":"dummy",
+		"sentinel":".maloja_cache_sentinel",
+		"possible_folders_container":[
+			"/config/cache"
+		],
 		"possible_folders":[
 			"/var/cache/maloja",
-			os.path.expanduser("~/.local/share/maloja/cache")
+			os.path.expanduser("~/.local/share/maloja/cache"),
+			"/tmp/maloja"
 		],
 		"setting":"directory_cache"
 	},
 	"state":{
-		"sentinel":"scrobbles",
+		"sentinel":".maloja_state_sentinel",
+		"possible_folders_container":[
+			"/config/state"
+		],
 		"possible_folders":[
 			"/var/lib/maloja",
 			os.path.expanduser("~/.local/share/maloja")
@@ -64,7 +76,10 @@ directory_info = {
 		"setting":"directory_state"
 	},
 	"logs":{
-		"sentinel":"dbfix",
+		"sentinel":".maloja_logs_sentinel",
+		"possible_folders_container":[
+			"/config/logs"
+		],
 		"possible_folders":[
 			"/var/log/maloja",
 			os.path.expanduser("~/.local/share/maloja/logs")
@@ -77,51 +92,51 @@ directory_info = {
 #   checks if one has been in use before and writes it to dict/config
 #   if not, determines which to use and writes it to dict/config
 # returns determined folder
-def find_good_folder(datatype,configobject):
+def find_good_folder(datatype):
 	info = directory_info[datatype]
 
+	possible_folders = info['possible_folders']
+	if os.environ.get("MALOJA_CONTAINER"):
+		possible_folders = info['possible_folders_container'] + possible_folders
+
 	# check each possible folder if its used
-	for p in info['possible_folders']:
+	for p in possible_folders:
 		if os.path.exists(pthj(p,info['sentinel'])):
-			#print(p,"has been determined as maloja's folder for",datatype)
-			configobject[info['setting']] = p
-			return p
+			if is_dir_usable(p):
+				#print(p,"was apparently used as maloja's folder for",datatype,"- fixing in settings")
+				return p
+			else:
+				raise PermissionError(f"Can no longer use previously used {datatype} folder {p}")
 
 	#print("Could not find previous",datatype,"folder")
 	# check which one we can use
-	for p in info['possible_folders']:
+	for p in possible_folders:
 		if is_dir_usable(p):
 			#print(p,"has been selected as maloja's folder for",datatype)
-			configobject[info['setting']] = p
 			return p
 	#print("No folder can be used for",datatype)
 	#print("This should not happen!")
+	raise PermissionError(f"No folder could be found for {datatype}")
 
 
 
 
 
 ### STEP 1 - find out where the settings file is
-# environment variables
+
 maloja_dir_config = os.environ.get("MALOJA_DATA_DIRECTORY") or os.environ.get("MALOJA_DIRECTORY_CONFIG")
 
-
 if maloja_dir_config is None:
-	maloja_dir_config = find_good_folder('config',{})
-	found_new_config_dir = True
+	# if nothing is set, we set our own
+	maloja_dir_config = find_good_folder('config')
 else:
-	found_new_config_dir = False
-	# remember whether we had to find our config dir or it was user-specified
+	pass
+	# if there is an environment variable, this is 100% explicitly defined by the user, so we respect it
+	# the user might run more than one instances on the same machine, so we don't do any heuristics here
+	# if you define this, we believe it!
 
 os.makedirs(maloja_dir_config,exist_ok=True)
-
-oldsettingsfile = pthj(maloja_dir_config,"settings","settings.ini")
-newsettingsfile = pthj(maloja_dir_config,"settings.ini")
-
-
-
-if os.path.exists(oldsettingsfile):
-	os.rename(oldsettingsfile,newsettingsfile)
+settingsfile = pthj(maloja_dir_config,"settings.ini")
 
 
 ### STEP 2 - create settings object
@@ -131,10 +146,10 @@ malojaconfig = Configuration(
 	settings={
 		"Setup":{
 			"data_directory":(tp.String(),										"Data Directory",				None,					"Folder for all user data. Overwrites all choices for specific directories."),
-			"directory_config":(tp.String(),									"Config Directory",				"/etc/maloja",			"Folder for config data. Only applied when global data directory is not set."),
-			"directory_state":(tp.String(),										"State Directory",				"/var/lib/maloja",		"Folder for state data. Only applied when global data directory is not set."),
-			"directory_logs":(tp.String(),										"Log Directory",				"/var/log/maloja",		"Folder for log data. Only applied when global data directory is not set."),
-			"directory_cache":(tp.String(),										"Cache Directory",				"/var/cache/maloja",	"Folder for cache data. Only applied when global data directory is not set."),
+			"directory_config":(tp.String(),									"Config Directory",				None,					"Folder for config data. Only applied when global data directory is not set."),
+			"directory_state":(tp.String(),										"State Directory",				None,					"Folder for state data. Only applied when global data directory is not set."),
+			"directory_logs":(tp.String(),										"Log Directory",				None,					"Folder for log data. Only applied when global data directory is not set."),
+			"directory_cache":(tp.String(),										"Cache Directory",				None,					"Folder for cache data. Only applied when global data directory is not set."),
 			"skip_setup":(tp.Boolean(),											"Skip Setup",					False,					"Make server setup process non-interactive. Vital for Docker."),
 			"force_password":(tp.String(),										"Force Password",				None,					"On startup, overwrite admin password with this one. This should usually only be done via environment variable in Docker."),
 			"clean_output":(tp.Boolean(),										"Avoid Mutable Console Output",	False,					"Use if console output will be redirected e.g. to a web interface.")
@@ -165,7 +180,7 @@ malojaconfig = Configuration(
       		"album_trim":(tp.Boolean(),											"Trim album title",				False,				"Removes EP and Single from album titles (affects mainly Apple Music scrobbles)")
 		},
 		"Third Party Services":{
-			"metadata_providers":(tp.List(tp.String()),							"Metadata Providers",			['lastfm','spotify','deezer','musicbrainz'],	"Which metadata providers should be used in what order. Musicbrainz is rate-limited and should not be used first."),
+			"metadata_providers":(tp.List(tp.String()),							"Metadata Providers",			['lastfm','spotify','deezer','audiodb','musicbrainz'],	"Which metadata providers should be used in what order. Musicbrainz is rate-limited and should not be used first."),
 			"scrobble_lastfm":(tp.Boolean(),									"Proxy-Scrobble to Last.fm",	False),
 			"lastfm_api_key":(tp.String(),										"Last.fm API Key",				None),
 			"lastfm_api_secret":(tp.String(),									"Last.fm API Secret",			None),
@@ -202,7 +217,8 @@ malojaconfig = Configuration(
 			"display_art_icons":(tp.Boolean(),									"Display Album/Artist Icons",	True),
 			"default_album_artist":(tp.String(),								"Default Albumartist",			"Various Artists"),
 			"use_album_artwork_for_tracks":(tp.Boolean(),						"Use Album Artwork for tracks",	True),
-			"fancy_placeholder_art":(tp.Boolean(),								"Use fancy placeholder artwork",True),
+			"fancy_placeholder_art":(tp.Boolean(),								"Use fancy placeholder artwork",False),
+			"show_play_number_on_tiles":(tp.Boolean(),							"Show amount of plays on tiles",False),
 			"discourage_cpu_heavy_stats":(tp.Boolean(),							"Discourage CPU-heavy stats",	False,					"Prevent visitors from mindlessly clicking on CPU-heavy options. Does not actually disable them for malicious actors!"),
 			"use_local_images":(tp.Boolean(),									"Use Local Images",				True),
 			#"local_image_rotate":(tp.Integer(),									"Local Image Rotate",			3600),
@@ -210,18 +226,15 @@ malojaconfig = Configuration(
 			"theme":(tp.String(),												"Theme",						"maloja")
 		}
 	},
-	configfile=newsettingsfile,
+	configfile=settingsfile,
 	save_endpoint="/apis/mlj_1/settings",
 	env_prefix="MALOJA_",
 	extra_files=["/run/secrets/maloja.yml","/run/secrets/maloja.ini"]
 
 )
 
-if found_new_config_dir:
-	try:
-		malojaconfig["DIRECTORY_CONFIG"] = maloja_dir_config
-	except PermissionError as e:
-		pass
+if not malojaconfig.readonly:
+	malojaconfig["DIRECTORY_CONFIG"] = maloja_dir_config
 	# this really doesn't matter because when are we gonna load info about where
 	# the settings file is stored from the settings file
 	# but oh well
@@ -243,17 +256,17 @@ except PermissionError as e:
 	pass
 
 
-### STEP 3 - check all possible folders for files (old installation)
-
+### STEP 3 - now check the other directories
 
 
 if not malojaconfig.readonly:
 	for datatype in ("state","cache","logs"):
-		# obviously default values shouldn't trigger this
-		# if user has nothing specified, we need to use this
-		if malojaconfig.get_specified(directory_info[datatype]['setting']) is None and malojaconfig.get_specified('DATA_DIRECTORY') is None:
-			find_good_folder(datatype,malojaconfig)
-
+		# if the setting is specified in the file or via a user environment variable, we accept it (we'll check later if it's usable)
+		if malojaconfig[directory_info[datatype]['setting']] or malojaconfig['DATA_DIRECTORY']:
+			pass
+		# otherwise, find a good one
+		else:
+			malojaconfig[directory_info[datatype]['setting']] = find_good_folder(datatype)
 
 
 
@@ -281,7 +294,6 @@ else:
 		"logs":pthj(malojaconfig['DATA_DIRECTORY'],"logs"),
 	}
 
-
 data_directories = {
 	"auth":pthj(dir_settings['state'],"auth"),
 	"backups":pthj(dir_settings['state'],"backups"),
@@ -299,7 +311,19 @@ data_directories = {
 }
 
 for identifier,path in data_directories.items():
-	os.makedirs(path,exist_ok=True)
+	try:
+		os.makedirs(path,exist_ok=True)
+		if not is_dir_usable(path): raise PermissionError(f"Directory {path} is not usable!")
+	except PermissionError:
+		# special case: cache does not contain info that can't be refetched, so no need to require user intervention
+		# just move to the next one
+		if identifier in ['cache']:
+			print("Cannot use",path,"for cache, finding new folder...")
+			data_directories['cache'] = dir_settings['cache'] = malojaconfig['DIRECTORY_CACHE'] = find_good_folder('cache')
+		else:
+			print("Directory",path,"is not usable.")
+			print("Please change permissions or settings!")
+			raise
 
 
 data_dir = {
