@@ -207,6 +207,7 @@ def jinja_page(name):
 			"apikey":request.cookies.get("apikey") if adminmode else None,
 			"apikeys":apikeystore,
 			"_urikeys":keys, #temporary!
+			"request":request,
 		}
 		loc_context["filterkeys"], loc_context["limitkeys"], loc_context["delimitkeys"], loc_context["amountkeys"], loc_context["specialkeys"] = uri_to_internal(keys)
 		try:

@@ -72,7 +72,10 @@
         <div id="left-side">
           <span><a href="/about">About</a></span>
           {% if adminmode %}
-          <span style="padding-left: 30px;"><a href="/ms">Multi-Scrobbler</a></span>
+          {% set multi_scrobbler_url = "http://192.168.0.83:9078" if request.get_header('host') == "192.168.0.26:42010" else "https://multiscrobbler.sheep-minnow.ts.net" %}
+          <span style="padding-left: 25px;"><a href="{{ multi_scrobbler_url }}">Multi Scrobbler</a></span>
+          {% set homepage_url = "http://192.168.0.5:3000" if request.get_header('host') == "192.168.0.26:42010" else "https://homepage.sheep-minnow.ts.net/#tailnet" %}
+          <span style="padding-left: 25px;"><a href="{{ homepage_url }}">Homepage</a></span>
           {% endif %}
         </div>
         <div id="notch">
