@@ -260,6 +260,57 @@ def server_info():
 	}
 
 
+@api.get("summary")
+@catch_exceptions
+@add_common_args_to_docstring(filterkeys=True,limitkeys=True,amountkeys=True)
+@convert_kwargs
+def get_summary(k_filter, k_limit, k_delimit, k_amount):
+	"""Returns a summary of recent scrobble data, includes number of scrobbles, top track, top artist, top album, and latest scrobble in specified time frames
+
+	:return: list (List)
+	:rtype: Dictionary"""
+
+	ckeys_num_scrobbles = {**k_filter, **k_limit, **k_amount}
+	num_scrobbles = database.get_scrobbles_num(**ckeys_num_scrobbles)
+
+	ckeys_top = {**k_limit}
+	top_track = "-"
+	db_top_track = database.get_top_tracks(**ckeys_top)
+	if db_top_track:
+		top_track_artists = ", ".join(db_top_track[0]["track"]["artists"])
+		top_track_title = db_top_track[0]["track"]["title"]
+		top_track = top_track_artists + " - " + top_track_title
+
+	top_artist = "-"
+	db_top_artist = database.get_top_artists(**ckeys_top)
+	if db_top_artist:
+		top_artist = db_top_artist[0]["artist"]
+
+	top_album = "-"
+	db_top_album = database.get_top_albums(**ckeys_top)
+	if db_top_album:
+		top_album_artists = ", ".join(db_top_album[0]["album"]["artists"])
+		top_album_title = db_top_album[0]["album"]["albumtitle"]
+		top_album = top_album_artists + " - " + top_album_title
+
+	ckeys_latest_scrobble = {**k_filter, **k_limit, **k_amount}
+	db_latest_scrobble = database.get_scrobbles(**ckeys_latest_scrobble)
+	latest_scrobble = "-"
+	if db_latest_scrobble:
+		latest_artists = ", ".join(db_latest_scrobble[0]["track"]["artists"])
+		latest_title = db_latest_scrobble[0]["track"]["title"]
+		latest_scrobble = latest_artists + " - " + latest_title
+
+	return {
+		"status":"ok",
+		"scrobbles":num_scrobbles,
+		"top_track":top_track,
+		"top_artist":top_artist,
+		"top_album":top_album,
+		"latest":latest_scrobble
+	}
+
+
 ## API ENDPOINTS THAT CLOSELY MATCH ONE DATABASE FUNCTION
 
 
