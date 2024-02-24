@@ -111,9 +111,8 @@ def incoming_scrobble(rawscrobble,fix=True,client=None,api=None,dbconn=None):
 	albumupdate = (malojaconfig["ALBUM_INFORMATION_TRUST"] == 'last')
 
 	if malojaconfig["DELETE_DOUBLE_SCROBBLE"] != 0:
-		# get the last 2 scrobbles within num of seconds defined by user and compare their timestamps with rawscrobble['scrobble_time']
-		# if the same track exists we assume it's a double scrobble
-		last_scrobbles = sqldb.get_scrobbles(since=(rawscrobble['scrobble_time']-malojaconfig["DELETE_DOUBLE_SCROBBLE"]),to=rawscrobble['scrobble_time'],limit=2,reverse=True,dbconn=dbconn)
+		# check if this scrobble is a double
+		last_scrobbles = sqldb.get_scrobbles(since=(scrobbledict['time']-malojaconfig["DELETE_DOUBLE_SCROBBLE"]),to=scrobbledict['time'],limit=2,reverse=True,dbconn=dbconn)
 		for scrobble in last_scrobbles:
 			if scrobble['track']['artists'] == scrobbledict['track']['artists'] and scrobble['track']['title'] == scrobbledict['track']['title']:
 				raise exceptions.DoubleScrobble(scrobble)
