@@ -22,6 +22,9 @@ class DatabaseNotBuilt(HTTPError):
 			headers={"Retry-After":120}
 		)
 
+class DoubleScrobble(Exception):
+	def __init__(self,scrobble):
+		self.scrobble = scrobble
 
 class MissingScrobbleParameters(Exception):
 	def __init__(self,params=[]):
