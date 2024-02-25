@@ -363,12 +363,14 @@ div#notification_area {
 	right:20px;
 }
 div#notification_area div.notification {
-	background-color:white;
+	background-color:black;
 	width:400px;
 	min-height:50px;
 	margin-bottom:7px;
 	padding:9px;
-	opacity:0.4;
+	opacity:0.5;
+	border-left: 8px solid var(--notification-color);
+	border-radius: 3px;
 }
 div#notification_area div.notification:hover {
 	opacity:0.95;
@@ -781,6 +783,9 @@ table.list td.artists,td.artist,td.title,td.track {
 table.list td.track span.artist_in_trackcolumn {
 	color: var(--text-color-secondary);
 }
+table.list td.album span.artist_in_albumcolumn {
+	color: var(--text-color-secondary);
+}
 
 table.list td.searchProvider {
 	width: 20px;
@@ -987,6 +992,7 @@ table.misc td {
 
 
 div.tiles {
+    max-height: 600px;
 	display: grid;
 	grid-template-columns: repeat(18, calc(100% / 18));
 	grid-template-rows: repeat(6, calc(100% / 6));

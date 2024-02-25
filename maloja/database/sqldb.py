@@ -328,31 +328,47 @@ def album_dict_to_db(info,dbconn=None):
 
 @connection_provider
 def add_scrobble(scrobbledict,update_album=False,dbconn=None):
-	add_scrobbles([scrobbledict],update_album=update_album,dbconn=dbconn)
+	_, ex, er = add_scrobbles([scrobbledict],update_album=update_album,dbconn=dbconn)
+	if er > 0:
+		raise exc.DuplicateTimestamp(existing_scrobble=None,rejected_scrobble=scrobbledict)
+		# TODO: actually pass existing scrobble
+	elif ex > 0:
+		raise exc.DuplicateScrobble(scrobble=scrobbledict)
 
 @connection_provider
 def add_scrobbles(scrobbleslist,update_album=False,dbconn=None):
 
 	with SCROBBLE_LOCK:
 
-		ops = [
-			DB['scrobbles'].insert().values(
-				**scrobble_dict_to_db(s,update_album=update_album,dbconn=dbconn)
-			) for s in scrobbleslist
-		]
+	#	ops = [
+	#		DB['scrobbles'].insert().values(
+	#			**scrobble_dict_to_db(s,update_album=update_album,dbconn=dbconn)
+	#		) for s in scrobbleslist
+	#	]
 
-		success,errors = 0,0
-		for op in ops:
+		success, exists, errors = 0, 0, 0
+
+		for s in scrobbleslist:
+			scrobble_entry = scrobble_dict_to_db(s,update_album=update_album,dbconn=dbconn)
 			try:
-				dbconn.execute(op)
+				dbconn.execute(DB['scrobbles'].insert().values(
+					**scrobble_entry
+				))
 				success += 1
-			except sql.exc.IntegrityError as e:
-				errors += 1
+			except sql.exc.IntegrityError:
+				# get existing scrobble
+				result = dbconn.execute(DB['scrobbles'].select().where(
+					DB['scrobbles'].c.timestamp == scrobble_entry['timestamp']
+				)).first()
+				if result.track_id == scrobble_entry['track_id']:
+					exists += 1
+				else:
+					errors += 1
 
-				# TODO check if actual duplicate
 
-	if errors > 0: log(f"{errors} Scrobbles have not been written to database!",color='red')
-	return success,errors
+	if errors > 0: log(f"{errors} Scrobbles have not been written to database (duplicate timestamps)!", color='red')
+	if exists > 0: log(f"{exists} Scrobbles have not been written to database (already exist)", color='orange')
+	return success, exists, errors
 
 @connection_provider
 def delete_scrobble(scrobble_id,dbconn=None):
@@ -406,7 +422,7 @@ def add_track_to_album(track_id,album_id,replace=False,dbconn=None):
 def add_tracks_to_albums(track_to_album_id_dict,replace=False,dbconn=None):
 
 	for track_id in track_to_album_id_dict:
-		add_track_to_album(track_id,track_to_album_id_dict[track_id],dbconn=dbconn)
+		add_track_to_album(track_id,track_to_album_id_dict[track_id],replace=replace,dbconn=dbconn)
 
 @connection_provider
 def remove_album(*track_ids,dbconn=None):
@@ -860,19 +876,24 @@ def get_scrobbles_of_artist(artist,since=None,to=None,resolve_references=True,li
 		op = op.order_by(sql.desc('timestamp'))
 	else:
 		op = op.order_by(sql.asc('timestamp'))
-	if limit:
+	if limit and not associated:
+		# if we count associated we cant limit here because we remove stuff later!
 		op = op.limit(limit)
 	result = dbconn.execute(op).all()
 
 	# remove duplicates (multiple associated artists in the song, e.g. Irene & Seulgi being both counted as Red Velvet)
 	# distinct on doesn't seem to exist in sqlite
-	seen = set()
-	filtered_result = []
-	for row in result:
-		if row.timestamp not in seen:
-			filtered_result.append(row)
-			seen.add(row.timestamp)
-	result = filtered_result
+	if associated:
+		seen = set()
+		filtered_result = []
+		for row in result:
+			if row.timestamp not in seen:
+				filtered_result.append(row)
+				seen.add(row.timestamp)
+		result = filtered_result
+		if limit:
+			result = result[:limit]
+
 
 
 	if resolve_references:
@@ -1072,7 +1093,7 @@ def count_scrobbles_by_artist(since,to,associated=True,resolve_ids=True,dbconn=N
 		DB['scrobbles'].c.timestamp.between(since,to)
 	).group_by(
 		artistselect
-	).order_by(sql.desc('count'))
+	).order_by(sql.desc('count'),sql.desc('really_by_this_artist'))
 	result = dbconn.execute(op).all()
 
 	if resolve_ids:
@@ -1684,6 +1705,11 @@ def clean_db(dbconn=None):
 		log(f"Database Cleanup...")
 
 		to_delete = [
+			# NULL associations
+			"from albumartists where album_id is NULL",
+			"from albumartists where artist_id is NULL",
+			"from trackartists where track_id is NULL",
+			"from trackartists where artist_id is NULL",
 			# tracks with no scrobbles (trackartist entries first)
 			"from trackartists where track_id in (select id from tracks where id not in (select track_id from scrobbles))",
 			"from tracks where id not in (select track_id from scrobbles)",
