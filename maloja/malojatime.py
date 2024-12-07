@@ -368,6 +368,28 @@ def thismonth():
 def thisyear():
 	tod = datetime.now(tz=TIMEZONE)
 	return MTRangeGregorian(tod.year)
+def wrapped():
+	"""
+	Determines the time range for the 'Wrapped' feature based on the current date.
+
+	This function calculates the year for the 'wrapped' feature by checking the current month.
+	If the current month is before November, it uses the previous year; otherwise, it uses the current year.
+	It then creates a time range from January to October of the determined year.
+
+	Returns:
+		MTRangeComposite: A composite time range from January to October of the calculated year.
+	"""
+	tod = datetime.now(tz=TIMEZONE)
+	year = tod.year
+	month = tod.month
+
+	# If we're before November, show previous year's wrapped
+	if month < 11:
+		year = year - 1
+		
+	start = MTRangeGregorian(year, 1)  # January of target year
+	end = MTRangeGregorian(year, 10)   # October of target year
+	return MTRangeComposite(start, end)
 def alltime():
 	return MTRangeComposite(None,None)
 
@@ -389,6 +411,7 @@ currenttime_string_representations = (
 	(thisweek,["week","thisweek"]),
 	(thismonth,["month","thismonth"]),
 	(thisyear,["year","thisyear"]),
+	(wrapped, ["wrapped"]),
 	(lambda:None,["alltime"])
 )
 month_string_representations = (
@@ -429,6 +452,9 @@ str_to_time_range = {
 # converts strings and stuff to objects
 def time_fix(t):
 	if t is None or isinstance(t,MTRangeGeneric): return t
+
+	if isinstance(t, str) and t.lower() == 'wrapped':
+		return wrapped()
 
 	if isinstance(t, str):
 		t = t.lower()
@@ -603,26 +629,3 @@ def ranges(since=None,to=None,within=None,timerange=None,step="month",stepn=1,tr
 		i += 1
 
 	#return ranges
-
-def wrapped():
-	"""
-	Determines the time range for the 'Wrapped' feature based on the current date.
-
-	This function calculates the year for the 'wrapped' feature by checking the current month.
-	If the current month is before November, it uses the previous year; otherwise, it uses the current year.
-	It then creates a time range from January to October of the determined year.
-
-	Returns:
-		MTRangeComposite: A composite time range from January to October of the calculated year.
-	"""
-	tod = datetime.now(tz=TIMEZONE)
-	year = tod.year
-	month = tod.month
-
-	# If we're before November, show previous year's wrapped
-	if month < 11:
-		year = year - 1
-		
-	start = MTRangeGregorian(year, 1)  # January of target year
-	end = MTRangeGregorian(year, 10)   # October of target year
-	return MTRangeComposite(start, end)
