@@ -54,6 +54,11 @@ def update_jinja_environment():
 			{"identifier":"week","localisation":"This Week","range":malojatime.thisweek()},
 			{"identifier":"month","localisation":"This Month","range":malojatime.thismonth()},
 			{"identifier":"year","localisation":"This Year","range":malojatime.thisyear()},
+			{
+				"identifier": "wrapped",
+				"localisation": f"{malojatime.wrapped().since.year} Wrapped",
+				"range": malojatime.wrapped()
+			},
 			{"identifier":"alltime","localisation":"All Time","range":malojatime.alltime()}
 		],
 		"xdelimiters": [
