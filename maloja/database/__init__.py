@@ -384,10 +384,19 @@ def get_scrobbles_num(dbconn=None,**keys):
 @waitfordb
 def get_tracks(dbconn=None,**keys):
 	if keys.get('artist') is None:
-		result = sqldb.get_tracks(dbconn=dbconn)
+		tracks = sqldb.get_tracks(dbconn=dbconn)
 	else:
-		result = sqldb.get_tracks_of_artist(keys.get('artist'),dbconn=dbconn)
-	return result
+		tracks = sqldb.get_tracks_of_artist(keys.get('artist'),dbconn=dbconn)
+
+	for track in tracks:
+		track_count = get_scrobbles_num(
+            track=track,
+            timerange=keys.get('timerange', alltime()),
+            dbconn=dbconn
+        )
+		track['scrobbles'] = track_count
+
+	return tracks
 
 @waitfordb
 def get_albums(dbconn=None,**keys):
