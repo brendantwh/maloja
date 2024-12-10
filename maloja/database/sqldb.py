@@ -274,7 +274,10 @@ def tracks_db_to_dict(rows, dbconn=None) -> list[TrackDict]:
 		cast(TrackDict, {
 			"artists":artists[row.id],
 			"title":row.title,
-			"album":albums.get(row.album_id),
+			"album": {
+                **albums.get(row.album_id, {}),
+                "id": row.album_id
+            },
 			"length":row.length
 		})
 		for row in rows
