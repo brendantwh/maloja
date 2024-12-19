@@ -444,15 +444,16 @@ def get_albums_external(k_filter, k_limit, k_delimit, k_amount):
 
 @api.get("charts/artists")
 @catch_exceptions
-@add_common_args_to_docstring(limitkeys=True)
+@add_common_args_to_docstring(limitkeys=True,amountkeys=True)
 @convert_kwargs
+@add_pagination("charts/artists",limitkeys=True)
 def get_charts_artists_external(k_filter, k_limit, k_delimit, k_amount):
 	"""Returns artist charts
 
 	:return: list (List)
 	:rtype: Dictionary"""
 
-	ckeys = {**k_limit}
+	ckeys = {**k_limit, **k_amount}
 	result = database.get_charts_artists(**ckeys)
 
 	return {
@@ -463,15 +464,16 @@ def get_charts_artists_external(k_filter, k_limit, k_delimit, k_amount):
 
 @api.get("charts/tracks")
 @catch_exceptions
-@add_common_args_to_docstring(filterkeys=True,limitkeys=True)
+@add_common_args_to_docstring(filterkeys=True,limitkeys=True,amountkeys=True)
 @convert_kwargs
+@add_pagination("charts/tracks",filterkeys=True,limitkeys=True)
 def get_charts_tracks_external(k_filter, k_limit, k_delimit, k_amount):
 	"""Returns track charts
 
 	:return: list (List)
 	:rtype: Dictionary"""
 
-	ckeys = {**k_filter, **k_limit}
+	ckeys = {**k_filter, **k_limit, **k_amount}
 	result = database.get_charts_tracks(**ckeys)
 
 	return {
@@ -482,15 +484,16 @@ def get_charts_tracks_external(k_filter, k_limit, k_delimit, k_amount):
 
 @api.get("charts/albums")
 @catch_exceptions
-@add_common_args_to_docstring(filterkeys=True,limitkeys=True)
+@add_common_args_to_docstring(filterkeys=True,limitkeys=True,amountkeys=True)
 @convert_kwargs
+@add_pagination("charts/albums",filterkeys=True,limitkeys=True)
 def get_charts_albums_external(k_filter, k_limit, k_delimit, k_amount):
 	"""Returns album charts
 
 	:return: list (List)
 	:rtype: Dictionary"""
 
-	ckeys = {**k_filter, **k_limit}
+	ckeys = {**k_filter, **k_limit, **k_amount}
 	result = database.get_charts_albums(**ckeys)
 
 	return {
