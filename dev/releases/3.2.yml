@@ -39,8 +39,19 @@ minor_release_name: "Nicole"
     - "[Feature] Added option to show scrobbles on tile charts"
     - "[Bugfix] Fixed Last.fm authentication"
 3.2.3:
+    commit: "a7dcd3df8a6b051a1f6d0b7d10cc5af83502445c"
     notes:
     - "[Architecture] Upgraded doreah, significant rework of authentication"
     - "[Bugfix] Fixed initial permission check"
     - "[Bugfix] Fixed and updated various texts"
     - "[Bugfix] Fixed moving tracks to different album"
+3.2.4:
+    notes:
+    - "[Architecture] Removed daemonization capabilities"
+    - "[Architecture] Moved import to main server process"
+    - "[Feature] Implemented support for ghan's csv Last.fm export"
+    - "[Performance] Debounced search"
+    - "[Bugfix] Fixed stuck scrobbling from Navidrome"
+    - "[Bugfix] Fixed missing image mimetype"
+    - "[Technical] Pinned dependencies"
+    - "[Technical] Upgraded Python and Alpine"

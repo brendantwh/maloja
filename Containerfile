@@ -1,4 +1,4 @@
-FROM lsiobase/alpine:3.19 as base
+FROM lsiobase/alpine:3.21 AS base
 
 WORKDIR /usr/src/app
 
@@ -29,6 +29,7 @@ RUN \
 	apk add --no-cache \
 		python3 \
 		py3-lxml \
+		libmagic \
 		tzdata && \
   echo "" && \
 	echo "**** install pip dependencies ****" && \

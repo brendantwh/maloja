@@ -34,9 +34,12 @@ def import_scrobbles(inputf):
 	filename = os.path.basename(inputf)
 	importfunc = None
 
+	if re.match(r"recenttracks-.*\.csv", filename):
+		typeid, typedesc = "lastfm", "Last.fm (ghan CSV)"
+		importfunc = parse_lastfm_ghan_csv
 
-	if re.match(r".*\.csv", filename):
-		typeid,typedesc = "lastfm", "Last.fm (benjaminbenben export)"
+	elif re.match(r".*\.csv", filename):
+		typeid,typedesc = "lastfm", "Last.fm (benjaminbenben CSV)"
 		importfunc = parse_lastfm
 
 	elif re.match(r"Streaming_History_Audio.+\.json", filename):
@@ -65,8 +68,8 @@ def import_scrobbles(inputf):
 		importfunc = parse_rockbox
 
 	elif re.match(r"recenttracks-.*\.json", filename):
-		typeid, typedesc = "lastfm", "Last.fm (ghan export)"
-		importfunc = parse_lastfm_ghan
+		typeid, typedesc = "lastfm", "Last.fm (ghan JSON)"
+		importfunc = parse_lastfm_ghan_json
 
 	elif re.match(r".*\.json",filename):
 		try:
@@ -83,8 +86,8 @@ def import_scrobbles(inputf):
 		return result
 
 
-	print(f"Parsing {col['yellow'](inputf)} as {col['cyan'](typedesc)} export")
-	print("This could take a while...")
+	print(f"Parsing {col['yellow'](inputf)} as {col['cyan'](typedesc)} export.")
+	print(col['red']("Please double-check if this is correct - if the import fails, the file might have been interpreted as the wrong type."))
 
 	timestamps = set()
 	scrobblebuffer = []
@@ -154,21 +157,22 @@ def parse_spotify_lite_legacy(inputf):
 	inputf = pth.abspath(inputf)
 	inputfolder = pth.dirname(inputf)
 	filenames = re.compile(r'StreamingHistory[0-9]+\.json')
-	inputfiles = [os.path.join(inputfolder,f) for f in os.listdir(inputfolder) if filenames.match(f)]
+	#inputfiles = [os.path.join(inputfolder,f) for f in os.listdir(inputfolder) if filenames.match(f)]
+	inputfiles = [inputf]
 
-	if len(inputfiles) == 0:
-		print("No files found!")
-		return
+	#if len(inputfiles) == 0:
+	#	print("No files found!")
+	#	return
 
-	if inputfiles != [inputf]:
-		print("Spotify files should all be imported together to identify duplicates across the whole dataset.")
-		if not ask("Import " + ", ".join(col['yellow'](pth.basename(i)) for i in inputfiles) + "?",default=True):
-			inputfiles = [inputf]
-			print("Only importing", col['yellow'](pth.basename(inputf)))
+	#if inputfiles != [inputf]:
+	#	print("Spotify files should all be imported together to identify duplicates across the whole dataset.")
+	#	if not ask("Import " + ", ".join(col['yellow'](pth.basename(i)) for i in inputfiles) + "?",default=True):
+	#		inputfiles = [inputf]
+	#		print("Only importing", col['yellow'](pth.basename(inputf)))
 
 	for inputf in inputfiles:
 
-		print("Importing",col['yellow'](inputf),"...")
+		#print("Importing",col['yellow'](inputf),"...")
 		with open(inputf,'r') as inputfd:
 			data = json.load(inputfd)
 
@@ -207,21 +211,22 @@ def parse_spotify_lite(inputf):
 	inputf = pth.abspath(inputf)
 	inputfolder = pth.dirname(inputf)
 	filenames = re.compile(r'Streaming_History_Audio.+\.json')
-	inputfiles = [os.path.join(inputfolder,f) for f in os.listdir(inputfolder) if filenames.match(f)]
+	#inputfiles = [os.path.join(inputfolder,f) for f in os.listdir(inputfolder) if filenames.match(f)]
+	inputfiles = [inputf]
 
-	if len(inputfiles) == 0:
-		print("No files found!")
-		return
+	#if len(inputfiles) == 0:
+	#	print("No files found!")
+	#	return
 
-	if inputfiles != [inputf]:
-		print("Spotify files should all be imported together to identify duplicates across the whole dataset.")
-		if not ask("Import " + ", ".join(col['yellow'](pth.basename(i)) for i in inputfiles) + "?",default=True):
-			inputfiles = [inputf]
-			print("Only importing", col['yellow'](pth.basename(inputf)))
+	#if inputfiles != [inputf]:
+	#	print("Spotify files should all be imported together to identify duplicates across the whole dataset.")
+	#	if not ask("Import " + ", ".join(col['yellow'](pth.basename(i)) for i in inputfiles) + "?",default=True):
+	#		inputfiles = [inputf]
+	#		print("Only importing", col['yellow'](pth.basename(inputf)))
 
 	for inputf in inputfiles:
 
-		print("Importing",col['yellow'](inputf),"...")
+		#print("Importing",col['yellow'](inputf),"...")
 		with open(inputf,'r') as inputfd:
 			data = json.load(inputfd)
 
@@ -267,17 +272,18 @@ def parse_spotify(inputf):
 	inputf = pth.abspath(inputf)
 	inputfolder = pth.dirname(inputf)
 	filenames = re.compile(r'endsong_[0-9]+\.json')
-	inputfiles = [os.path.join(inputfolder,f) for f in os.listdir(inputfolder) if filenames.match(f)]
+	#inputfiles = [os.path.join(inputfolder,f) for f in os.listdir(inputfolder) if filenames.match(f)]
+	inputfiles = [inputf]
 
-	if len(inputfiles) == 0:
-		print("No files found!")
-		return
+	#if len(inputfiles) == 0:
+	#	print("No files found!")
+	#	return
 
-	if inputfiles != [inputf]:
-		print("Spotify files should all be imported together to identify duplicates across the whole dataset.")
-		if not ask("Import " + ", ".join(col['yellow'](pth.basename(i)) for i in inputfiles) + "?",default=True):
-			inputfiles = [inputf]
-			print("Only importing", col['yellow'](pth.basename(inputf)))
+	#if inputfiles != [inputf]:
+	#	print("Spotify files should all be imported together to identify duplicates across the whole dataset.")
+	#	if not ask("Import " + ", ".join(col['yellow'](pth.basename(i)) for i in inputfiles) + "?",default=True):
+	#		inputfiles = [inputf]
+	#		print("Only importing", col['yellow'](pth.basename(inputf)))
 
 	# we keep timestamps here as well to remove duplicates because spotify's export
 	# is messy - this is specific to this import type and should not be mixed with
@@ -288,7 +294,7 @@ def parse_spotify(inputf):
 
 	for inputf in inputfiles:
 
-		print("Importing",col['yellow'](inputf),"...")
+		#print("Importing",col['yellow'](inputf),"...")
 		with open(inputf,'r') as inputfd:
 			data = json.load(inputfd)
 
@@ -408,7 +414,7 @@ def parse_lastfm(inputf):
 				continue
 
 
-def parse_lastfm_ghan(inputf):
+def parse_lastfm_ghan_json(inputf):
 	with open(inputf, 'r') as inputfd:
 		data = json.load(inputfd)
 
@@ -426,6 +432,21 @@ def parse_lastfm_ghan(inputf):
 				'track_length': None,
 				'album_name': track['album']['#text'],
 				'scrobble_time': int(track['date']['uts']),
+				'scrobble_duration': None
+			}, '')
+
+
+def parse_lastfm_ghan_csv(inputf):
+	with open(inputf, 'r') as inputfd:
+		reader = csv.DictReader(inputfd)
+
+		for row in reader:
+			yield ('CONFIDENT_IMPORT', {
+				'track_title': row['track'],
+				'track_artists': row['artist'],
+				'track_length': None,
+				'album_name': row['album'],
+				'scrobble_time': int(row['uts']),
 				'scrobble_duration': None
 			}, '')
 

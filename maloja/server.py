@@ -3,6 +3,7 @@ import os
 from threading import Thread
 from importlib import resources
 import time
+from magic import from_file
 
 
 # server stuff
@@ -154,7 +155,8 @@ def static_image(pth):
 
 @webserver.route("/cacheimages/<uuid>")
 def static_proxied_image(uuid):
-	return static_file(uuid,root=data_dir['cache']('images'))
+	mimetype = from_file(os.path.join(data_dir['cache']('images'),uuid),True)
+	return static_file(uuid,root=data_dir['cache']('images'),mimetype=mimetype)
 
 @webserver.route("/login")
 def login():
@@ -165,16 +167,16 @@ def login():
 @webserver.route("/media/<name>.<ext>")
 def static(name,ext):
 	assert ext in ["txt","ico","jpeg","jpg","png","less","js","ttf","css"]
-	with resources.files('maloja') / 'web' / 'static' as staticfolder:
-		response = static_file(ext + "/" + name + "." + ext,root=staticfolder)
+	staticfolder = resources.files('maloja') / 'web' / 'static'
+	response = static_file(ext + "/" + name + "." + ext,root=staticfolder)
 	response.set_header("Cache-Control", "public, max-age=3600")
 	return response
 
 # new, direct reference
 @webserver.route("/static/<path:path>")
 def static(path):
-	with resources.files('maloja') / 'web' / 'static' as staticfolder:
-		response = static_file(path,root=staticfolder)
+	staticfolder = resources.files('maloja') / 'web' / 'static'
+	response = static_file(path,root=staticfolder)
 	response.set_header("Cache-Control", "public, max-age=3600")
 	return response
 

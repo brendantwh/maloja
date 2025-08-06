@@ -1,6 +1,8 @@
 # server
 from bottle import request, response, FormsDict
 
+from ..pkg_global import conf
+
 
 # decorator that makes sure this function is only run in normal operation,
 # not when we run a task that needs to access the database
@@ -939,6 +941,9 @@ def get_predefined_rulesets(dbconn=None):
 
 
 def start_db():
+
+	conf.AUX_MODE = True # that is, without a doubt, the worst python code you have ever seen
+
 	# Upgrade database
 	from .. import upgrade
 	upgrade.upgrade_db(sqldb.add_scrobbles)
@@ -948,7 +953,15 @@ def start_db():
 	from . import associated
 	associated.load_associated_rules()
 
+	# import scrobbles
+	from ..proccontrol.tasks.import_scrobbles import import_scrobbles #lmao this codebase is so fucked
+	for f in os.listdir(data_dir['import']()):
+		if f != 'dummy':
+			import_scrobbles(data_dir['import'](f))
+
 	dbstatus['healthy'] = True
+
+	conf.AUX_MODE = False # but you have seen it
 
 	# inform time module about begin of scrobbling
 	try:
