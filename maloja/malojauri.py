@@ -62,6 +62,9 @@ def uri_to_internal(keys,accepted_entities=('artist','track','album'),forceTrack
 	if "stepn" in keys: delimitkeys["stepn"] = keys["stepn"] #overwrite if explicitly given
 	if "stepn" in delimitkeys: delimitkeys["stepn"] = int(delimitkeys["stepn"]) #in both cases, convert it here
 	if "trail" in keys: delimitkeys["trail"] = int(keys["trail"])
+	# a step size or trail below 1 never advances and makes range generation loop forever
+	delimitkeys["stepn"] = max(1, delimitkeys["stepn"])
+	delimitkeys["trail"] = max(1, delimitkeys["trail"])
 	if "cumulative" in keys: delimitkeys["trail"] = math.inf
 
 
