@@ -386,10 +386,19 @@ def get_scrobbles_num(dbconn=None,**keys):
 @waitfordb
 def get_tracks(dbconn=None,**keys):
 	if keys.get('artist') is None:
-		result = sqldb.get_tracks(dbconn=dbconn)
+		tracks = sqldb.get_tracks(dbconn=dbconn)
 	else:
-		result = sqldb.get_tracks_of_artist(keys.get('artist'),dbconn=dbconn)
-	return result
+		tracks = sqldb.get_tracks_of_artist(keys.get('artist'),dbconn=dbconn)
+
+	for track in tracks:
+		track_count = get_scrobbles_num(
+            track=track,
+            timerange=keys.get('timerange', alltime()),
+            dbconn=dbconn
+        )
+		track['scrobbles'] = track_count
+
+	return tracks
 
 @waitfordb
 def get_albums(dbconn=None,**keys):
@@ -425,6 +434,14 @@ def get_tracks_without_album(dbconn=None,resolve_ids=True):
 @waitfordb
 def get_charts_artists(dbconn=None,resolve_ids=True,**keys):
 	(since,to) = keys.get('timerange').timestamps()
+
+	if keys.get('perpage',math.inf) is not math.inf:
+		limit = (keys.get('page',0)+1) * keys.get('perpage',100)
+		behead = keys.get('page',0) * keys.get('perpage',100)
+	else:
+		limit = None
+		behead = 0
+
 	separate = keys.get('separate',False)
 	result = sqldb.count_scrobbles_by_artist(since=since,to=to,resolve_ids=resolve_ids,associated=(not separate),dbconn=dbconn)
 
@@ -434,23 +451,39 @@ def get_charts_artists(dbconn=None,resolve_ids=True,**keys):
 		for entry in result:
 			if "artist_id" in entry:
 				entry['associated_artists'] = map[entry['artist_id']]
-	return result
+
+	return list(result[behead:limit]) if limit else result
 
 @waitfordb
 def get_charts_tracks(dbconn=None,resolve_ids=True,**keys):
 	(since,to) = keys.get('timerange').timestamps()
+
+	if keys.get('perpage',math.inf) is not math.inf:
+		limit = (keys.get('page',0)+1) * keys.get('perpage',100)
+		behead = keys.get('page',0) * keys.get('perpage',100)
+	else:
+		limit = None
+		behead = 0
+
 	if 'artist' in keys:
 		result = sqldb.count_scrobbles_by_track_of_artist(since=since,to=to,artist=keys['artist'],associated=keys.get('associated',False),resolve_ids=resolve_ids,dbconn=dbconn)
 	elif 'album' in keys:
 		result = sqldb.count_scrobbles_by_track_of_album(since=since,to=to,album=keys['album'],resolve_ids=resolve_ids,dbconn=dbconn)
 	else:
 		result = sqldb.count_scrobbles_by_track(since=since,to=to,resolve_ids=resolve_ids,dbconn=dbconn)
-	return result
 
-@waitfordb
+	return list(result[behead:limit]) if limit else result
+
+@waitfordb 
 def get_charts_albums(dbconn=None,resolve_ids=True,only_own_albums=False,**keys):
-	# TODO: different scrobble numbers for only own tracks on own album etc?
 	(since,to) = keys.get('timerange').timestamps()
+
+	if keys.get('perpage',math.inf) is not math.inf:
+		limit = (keys.get('page',0)+1) * keys.get('perpage',100)
+		behead = keys.get('page',0) * keys.get('perpage',100)
+	else:
+		limit = None
+		behead = 0
 
 	if 'artist' in keys:
 		artist = sqldb.get_artist(sqldb.get_artist_id(keys['artist']))
@@ -460,7 +493,8 @@ def get_charts_albums(dbconn=None,resolve_ids=True,only_own_albums=False,**keys)
 			result = [e for e in result if artist in (e['album']['artists'] or [])]
 	else:
 		result = sqldb.count_scrobbles_by_album(since=since,to=to,resolve_ids=resolve_ids,dbconn=dbconn)
-	return result
+
+	return list(result[behead:limit]) if limit else result
 
 @waitfordb
 def get_pulse(dbconn=None,**keys):

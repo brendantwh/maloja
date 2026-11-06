@@ -302,6 +302,7 @@ def albums_db_to_dict(rows, dbconn=None) -> list[AlbumDict]:
 		cast(AlbumDict, {
 			"artists": artists.get(row.id),
 			"albumtitle": row.albtitle,
+			"id": row.id,
 		})
 		for row in rows
 	]
