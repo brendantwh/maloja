@@ -46,6 +46,7 @@ minor_release_name: "Nicole"
     - "[Bugfix] Fixed and updated various texts"
     - "[Bugfix] Fixed moving tracks to different album"
 3.2.4:
+    commit: "c571ffbf077d2402238181ef10c9f0689ad8cf3a"
     notes:
     - "[Architecture] Removed daemonization capabilities"
     - "[Architecture] Moved import to main server process"
@@ -55,3 +56,22 @@ minor_release_name: "Nicole"
     - "[Bugfix] Fixed missing image mimetype"
     - "[Technical] Pinned dependencies"
     - "[Technical] Upgraded Python and Alpine"
+3.2.5:
+    commit: "35897a95f4eb9ea2485f2168dd9331e77c6a118d"
+    notes:
+    - "[Security] Fixed replay attack vulnerability in legacy scrobbler"
+    - "[Security] Limited URL domains for image cache store"
+3.2.6:
+    commit: "52aae997fb6b8ad62c65498f4e91e7d65fbe242d"
+    notes:
+    - "[Security] Added image URL validation"
+3.2.7:
+    commit: "cde66579c3d406368d3090e0afe7431497aab65e"
+    notes:
+    - "[Security] Fixed XSS exploit in stored metadata"
+3.2.8:
+    notes:
+    - "[Bugfix] Add additional allowed last.fm domain"
+3.2.9:
+    notes:
+    - "[Bugfix] Fix display of settings and API keys"
