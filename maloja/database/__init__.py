@@ -397,15 +397,18 @@ def get_tracks(dbconn=None,**keys):
 	else:
 		tracks = sqldb.get_tracks_of_artist(keys.get('artist'),dbconn=dbconn)
 
-	for track in tracks:
-		track_count = get_scrobbles_num(
-            track=track,
-            timerange=keys.get('timerange', alltime()),
-            dbconn=dbconn
-        )
-		track['scrobbles'] = track_count
+	# count all tracks in one query instead of one lookup per track
+	(since,to) = keys.get('timerange', alltime()).timestamps()
+	counts = {
+		(entry['track']['title'], tuple(sorted(entry['track']['artists']))): entry['scrobbles']
+		for entry in sqldb.count_scrobbles_by_track(since=since,to=to,dbconn=dbconn)
+	}
 
-	return tracks
+	# copy the dicts so the cached track list isn't modified
+	return [
+		{**track, 'scrobbles': counts.get((track['title'], tuple(sorted(track['artists']))), 0)}
+		for track in tracks
+	]
 
 @waitfordb
 def get_albums(dbconn=None,**keys):
