@@ -202,8 +202,8 @@ class CleanerAgent:
 		t = t.replace("[","(").replace("]",")")
 
 		if malojaconfig["ALBUM_TRIM"]:
-			t = t.replace(" - EP", "")
-			t = t.replace(" - Single", "")
+			# only strip the suffix Apple Music appends, not matches elsewhere in the title
+			t = re.sub(r"\s+-\s+(EP|Single)\s*$", "", t)
 
 		t = t.strip()
 		return t
