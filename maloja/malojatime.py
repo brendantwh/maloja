@@ -455,9 +455,6 @@ str_to_time_range = {
 def time_fix(t):
 	if t is None or isinstance(t,MTRangeGeneric): return t
 
-	if isinstance(t, str) and t.lower() == 'wrapped':
-		return wrapped()
-
 	if isinstance(t, str):
 		t = t.lower()
 
