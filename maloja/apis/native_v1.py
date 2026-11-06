@@ -547,7 +547,7 @@ def get_performance_external(k_filter, k_limit, k_delimit, k_amount):
 
 @api.get("top/artists")
 @catch_exceptions
-@add_common_args_to_docstring(limitkeys=True)
+@add_common_args_to_docstring(limitkeys=True,delimitkeys=True)
 @convert_kwargs
 def get_top_artists_external(k_filter, k_limit, k_delimit, k_amount):
 	"""Returns respective number 1 artists in specified time frames
@@ -566,7 +566,7 @@ def get_top_artists_external(k_filter, k_limit, k_delimit, k_amount):
 
 @api.get("top/tracks")
 @catch_exceptions
-@add_common_args_to_docstring(limitkeys=True)
+@add_common_args_to_docstring(limitkeys=True,delimitkeys=True)
 @convert_kwargs
 def get_top_tracks_external(k_filter, k_limit, k_delimit, k_amount):
 	"""Returns respective number 1 tracks in specified time frames
@@ -586,7 +586,7 @@ def get_top_tracks_external(k_filter, k_limit, k_delimit, k_amount):
 
 @api.get("top/albums")
 @catch_exceptions
-@add_common_args_to_docstring(limitkeys=True)
+@add_common_args_to_docstring(limitkeys=True,delimitkeys=True)
 @convert_kwargs
 def get_top_albums_external(k_filter, k_limit, k_delimit, k_amount):
 	"""Returns respective number 1 albums in specified time frames
