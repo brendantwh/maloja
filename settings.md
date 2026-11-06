@@ -41,7 +41,8 @@ Settings File			| Environment Variable			| Type			| Description
 `scrobbles_platinum_album`	| `MALOJA_SCROBBLES_PLATINUM_ALBUM`  | Integer | How many scrobbles an album needs to be considered 'Platinum' status
 `scrobbles_diamond_album`	| `MALOJA_SCROBBLES_DIAMOND_ALBUM`  | Integer | How many scrobbles an album needs to be considered 'Diamond' status
 `name`	| `MALOJA_NAME`  | String | Name
-`album_trim`	| `MALOJA_ALBUM_TRIM`  | String | Removes EP and Single from album titles (affects mainly Apple Music scrobbles)
+`album_trim`	| `MALOJA_ALBUM_TRIM`  | Boolean | Removes EP and Single from album titles (affects mainly Apple Music scrobbles)
+`delete_double_scrobble`	| `MALOJA_DELETE_DOUBLE_SCROBBLE`  | Integer | Ignore a scrobble if the same track was already scrobbled within this many seconds of it. 0 = disabled
 **Third Party Services**
 `metadata_providers`	| `MALOJA_METADATA_PROVIDERS`  | List | List of which metadata providers should be used in what order. Musicbrainz is rate-limited and should not be used first.
 `scrobble_lastfm`	| `MALOJA_SCROBBLE_LASTFM`  | Boolean | Proxy-Scrobble to Last.fm
