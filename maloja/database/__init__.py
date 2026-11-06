@@ -112,12 +112,17 @@ def incoming_scrobble(rawscrobble,fix=True,client=None,api=None,dbconn=None):
 	scrobbledict = rawscrobble_to_scrobbledict(rawscrobble, fix, client)
 	albumupdate = (malojaconfig["ALBUM_INFORMATION_TRUST"] == 'last')
 
-	if malojaconfig["DELETE_DOUBLE_SCROBBLE"] != 0:
-		# check if this scrobble is a double
-		last_scrobbles = sqldb.get_scrobbles(since=(scrobbledict['time']-malojaconfig["DELETE_DOUBLE_SCROBBLE"]),to=scrobbledict['time'],limit=2,reverse=True,dbconn=dbconn)
-		for scrobble in last_scrobbles:
-			if scrobble['track']['artists'] == scrobbledict['track']['artists'] and scrobble['track']['title'] == scrobbledict['track']['title']:
-				raise exceptions.DoubleScrobble(scrobble)
+	window = malojaconfig["DELETE_DOUBLE_SCROBBLE"]
+	if window > 0 and scrobbledict:
+		# reject if the same track was scrobbled within the window on either side
+		# (identical timestamps are left to the regular duplicate handling)
+		track_id = sqldb.get_track_id(scrobbledict['track'], create_new=False, dbconn=dbconn)
+		if track_id is not None:
+			t = scrobbledict['time']
+			nearby = sqldb.get_scrobbles(since=t-window, to=t+window, resolve_references=False, dbconn=dbconn)
+			for row in nearby:
+				if row.track_id == track_id and row.timestamp != t:
+					raise exceptions.DoubleScrobble(sqldb.get_scrobble(timestamp=row.timestamp, dbconn=dbconn))
 
 	if scrobbledict:
 
