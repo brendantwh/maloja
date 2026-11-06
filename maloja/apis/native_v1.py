@@ -289,7 +289,7 @@ def server_info():
 @catch_exceptions
 @add_common_args_to_docstring(filterkeys=True,limitkeys=True,amountkeys=True)
 @convert_kwargs
-def get_summary(k_filter, k_limit, k_delimit, k_amount):
+def get_summary(k_filter, k_limit, k_delimit, k_amount, k_special=None):
 	"""Returns a summary of recent scrobble data, includes number of scrobbles, top track, top artist, top album, and latest scrobble in specified time frames
 
 	:return: list (List)
@@ -300,20 +300,20 @@ def get_summary(k_filter, k_limit, k_delimit, k_amount):
 
 	ckeys_top = {**k_limit}
 	top_track = "-"
-	db_top_track = database.get_top_tracks(**ckeys_top)
-	if db_top_track:
+	db_top_track = database.get_charts_tracks(**ckeys_top)
+	if db_top_track and db_top_track[0]["track"]:
 		top_track_artists = ", ".join(db_top_track[0]["track"]["artists"])
 		top_track_title = db_top_track[0]["track"]["title"]
 		top_track = top_track_artists + " - " + top_track_title
 
 	top_artist = "-"
-	db_top_artist = database.get_top_artists(**ckeys_top)
-	if db_top_artist:
+	db_top_artist = database.get_charts_artists(**ckeys_top)
+	if db_top_artist and db_top_artist[0]["artist"]:
 		top_artist = db_top_artist[0]["artist"]
 
 	top_album = "-"
-	db_top_album = database.get_top_albums(**ckeys_top)
-	if db_top_album:
+	db_top_album = database.get_charts_albums(**ckeys_top)
+	if db_top_album and db_top_album[0]["album"]:
 		top_album_artists = ", ".join(db_top_album[0]["album"]["artists"])
 		top_album_title = db_top_album[0]["album"]["albumtitle"]
 		top_album = top_album_artists + " - " + top_album_title
