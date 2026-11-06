@@ -102,4 +102,9 @@ class APIHandler:
 	def scrobble(self,rawscrobble,client=None):
 
 		# fixing etc is handled by the main scrobble function
-		return database.incoming_scrobble(rawscrobble,api=self.__apiname__,client=client)
+		try:
+			return database.incoming_scrobble(rawscrobble,api=self.__apiname__,client=client)
+		except database.exceptions.DoubleScrobble:
+			# report success so clients don't retry, and the rest of a batch still goes through
+			log(f"Ignored double scrobble from {self.__apiname__} API: {rawscrobble}")
+			return None

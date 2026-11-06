@@ -65,13 +65,15 @@ errors = {
 			'desc':"This entity already exists in the database. Consider merging instead."
 		}
 	}),
-	database.exceptions.DoubleScrobble: lambda e: (409,{
-		"status":"failure",
-		"error":{
-			'type':'double_scrobble',
-			'value':e.scrobble,
-			'desc':"This song was recently scrobbled, identified as double scrobble."
-		}
+	database.exceptions.DoubleScrobble: lambda e: (200,{
+		"status": "success",
+		"desc": "This track was recently scrobbled. The submitted scrobble was not added.",
+		"track": {},
+		"warnings": [{
+			'type': 'double_scrobble',
+			'value': e.scrobble,
+			'desc': 'This track was already scrobbled within the double scrobble window. The submitted scrobble was not added.'
+		}]
 	}),
 	database.exceptions.DatabaseNotBuilt: lambda e: (503,{
 		"status":"error",
