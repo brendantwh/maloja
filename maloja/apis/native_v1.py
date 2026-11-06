@@ -316,11 +316,12 @@ def get_summary(k_filter, k_limit, k_delimit, k_amount, k_special=None):
 	top_album = "-"
 	db_top_album = database.get_charts_albums(**ckeys_top)
 	if db_top_album and db_top_album[0]["album"]:
-		top_album_artists = ", ".join(db_top_album[0]["album"]["artists"])
+		top_album_artists = ", ".join(db_top_album[0]["album"]["artists"] or [])
 		top_album_title = db_top_album[0]["album"]["albumtitle"]
-		top_album = top_album_artists + " - " + top_album_title
+		top_album = (top_album_artists + " - " + top_album_title) if top_album_artists else top_album_title
 
-	ckeys_latest_scrobble = {**k_filter, **k_limit, **k_amount}
+	# only the newest scrobble is needed
+	ckeys_latest_scrobble = {**k_filter, **k_limit, "page": 0, "perpage": 1}
 	db_latest_scrobble = database.get_scrobbles(**ckeys_latest_scrobble)
 	latest_scrobble = "-"
 	if db_latest_scrobble:
