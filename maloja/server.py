@@ -126,8 +126,12 @@ def dynamic_image():
 		# still being worked on
 		response.status = 202
 		response.set_header('Retry-After',15)
+		response.set_header('Cache-Control','no-store')
 		return
 	if result['type'] in ('url','localurl'):
+		# every cover on a page goes through here, so let browsers remember the target for a while
+		# (a newly uploaded image can take up to this long to show without a reload)
+		response.set_header('Cache-Control','public, max-age=3600')
 		redirect(result['value'],307)
 
 @webserver.route("/images/<pth:re:.*\\.jpeg>")
@@ -159,7 +163,11 @@ def static_image(pth):
 @webserver.route("/cacheimages/<uuid>")
 def static_proxied_image(uuid):
 	mimetype = from_file(os.path.join(data_dir['cache']('images'),uuid),True)
-	return static_file(uuid,root=data_dir['cache']('images'),mimetype=mimetype)
+	resp = static_file(uuid,root=data_dir['cache']('images'),mimetype=mimetype)
+	if resp.status_code in (200, 304):
+		# file names are random and never reused, so the content behind a url never changes
+		resp.set_header("Cache-Control", "public, max-age=31536000, immutable")
+	return resp
 
 @webserver.route("/login")
 def login():
