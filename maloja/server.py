@@ -135,22 +135,24 @@ def dynamic_image():
 @webserver.route("/images/<pth:re:.*\\.gif>")
 def static_image(pth):
 
-	ext = pth.split(".")[-1]
+	ext = pth.split(".")[-1].lower()
+	original_mimetype = {"jpg":"image/jpeg","jpeg":"image/jpeg","png":"image/png","gif":"image/gif"}[ext]
+	# thumbnails are always saved as webp, regardless of the original format
+	thumbnail_mimetype = "image/webp"
+
 	small_pth = pth + "-small"
 	if os.path.exists(data_dir['images'](small_pth)):
-		resp = static_file(small_pth,root=data_dir['images']())
+		resp = static_file(small_pth,root=data_dir['images'](),mimetype=thumbnail_mimetype)
 	else:
 		try:
 			from pyvips import Image
 			thumb = Image.thumbnail(data_dir['images'](pth),300)
 			thumb.webpsave(data_dir['images'](small_pth))
-			resp = static_file(small_pth,root=data_dir['images']())
+			resp = static_file(small_pth,root=data_dir['images'](),mimetype=thumbnail_mimetype)
 		except Exception:
-			resp = static_file(pth,root=data_dir['images']())
+			resp = static_file(pth,root=data_dir['images'](),mimetype=original_mimetype)
 
-	#response = static_file("images/" + pth,root="")
 	resp.set_header("Cache-Control", "public, max-age=86400")
-	resp.set_header("Content-Type", "image/" + ext)
 	return resp
 
 @webserver.route("/cacheimages/<uuid>")
