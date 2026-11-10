@@ -13,6 +13,7 @@ import base64
 import time
 from doreah.logging import log
 from threading import BoundedSemaphore, Thread
+from concurrent.futures import ThreadPoolExecutor
 
 from ..pkg_global.conf import malojaconfig
 from .. import database
@@ -49,9 +50,21 @@ def import_scrobbles(identifier):
 			return service.import_scrobbles()
 	return False
 
+# forwarding runs in the background so a slow or failing service can't delay or fail
+# the incoming scrobble, which is already saved at this point
+# a single worker keeps forwarded scrobbles in order
+proxy_scrobble_executor = ThreadPoolExecutor(max_workers=1,thread_name_prefix='proxy_scrobble')
+
 def proxy_scrobble_all(artists,title,timestamp):
+	if services["proxyscrobble"]:
+		proxy_scrobble_executor.submit(_proxy_scrobble_all,artists,title,timestamp)
+
+def _proxy_scrobble_all(artists,title,timestamp):
 	for service in services["proxyscrobble"]:
-		service.scrobble(artists,title,timestamp)
+		try:
+			service.scrobble(artists,title,timestamp)
+		except Exception as e:
+			log(f"Could not forward scrobble of {title} to {service.name}: {e!r}",color='red')
 
 def get_image_track_all(track):
 	with thirdpartylock:
