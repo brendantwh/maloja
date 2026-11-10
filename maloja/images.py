@@ -15,7 +15,7 @@ import random
 import base64
 import requests
 import datauri
-from threading import Lock
+from threading import Lock, Condition, BoundedSemaphore
 from concurrent.futures import ThreadPoolExecutor
 import re
 import datetime
@@ -27,6 +27,12 @@ import sqlalchemy as sql
 
 MAX_RESOLVE_THREADS = 5
 MAX_SECONDS_TO_RESOLVE_REQUEST = 5
+# the server has 16 threads, so keep most of them free for pages and scrobbles
+MAX_WAITING_IMAGE_REQUESTS = 4
+
+# notified whenever a resolve job finishes, so waiting image requests can check right away
+image_resolved = Condition()
+image_request_waiters = BoundedSemaphore(MAX_WAITING_IMAGE_REQUESTS)
 
 
 # remove old db file (columns missing)
@@ -339,50 +345,74 @@ def resolve_image(artist_id=None,track_id=None,album_id=None):
 	finally:
 		with image_resolve_controller_lock:
 			image_resolve_controller[table].remove(entity_id)
+		# wake up image requests that are waiting for a result
+		with image_resolved:
+			image_resolved.notify_all()
 
 
 
 # the actual http request for the full image
 def image_request(artist_id=None,track_id=None,album_id=None):
 
-	# because we use lazyload, we can allow our http requests to take a little while at least
-	# not the full backend request, but a few seconds to give us time to fetch some images
-	# because 503 retry-after doesn't seem to be honored
-	attempt = 0
-	while attempt < MAX_SECONDS_TO_RESOLVE_REQUEST:
-		attempt += 1
-		# check cache
-		result = get_image_from_cache(artist_id=artist_id,track_id=track_id,album_id=album_id)
-		if result is not None:
-			# we got an entry, even if it's that there is no image (value None)
-			if result['value'] is None:
-				# fallback to album regardless of setting (because we have no image)
-				if track_id:
-					track = database.sqldb.get_track(track_id)
-					if track.get("album"):
-						album_id = database.sqldb.get_album_id(track["album"])
-						return image_request(album_id=album_id)
-				# use placeholder
-				if malojaconfig["FANCY_PLACEHOLDER_ART"]:
-					placeholder_url = "https://generative-placeholders.glitch.me/image?width=300&height=300&style="
-					if artist_id:
-						result['value'] = placeholder_url + f"tiles&colors={artist_id % 100}"
-					if track_id:
-						result['value'] = placeholder_url + f"triangles&colors={track_id % 100}"
-					if album_id:
-						result['value'] = placeholder_url + f"joy-division&colors={album_id % 100}"
-				else:
-					if artist_id:
-						result['value'] = "/static/svg/placeholder_artist.svg"
-					if track_id:
-						result['value'] = "/static/svg/placeholder_track.svg"
-					if album_id:
-						result['value'] = "/static/svg/placeholder_album.svg"
-			return result
-		time.sleep(1)
+	ids = {'artist_id':artist_id,'track_id':track_id,'album_id':album_id}
 
-	# no entry, which means we're still working on it
-	return {'type':'noimage','value':'wait'}
+	result = get_image_from_cache(**ids)
+	if result is None:
+		# make sure a lookup is running (e.g. the entry expired since the page was rendered)
+		queue_resolve(**ids)
+		result = wait_for_image(ids)
+
+	if result is None:
+		# no entry, which means we're still working on it
+		return {'type':'noimage','value':'wait'}
+
+	# we got an entry, even if it's that there is no image (value None)
+	if result['value'] is None:
+		# fallback to album regardless of setting (because we have no image)
+		if track_id:
+			track = database.sqldb.get_track(track_id)
+			if track.get("album"):
+				album_id = database.sqldb.get_album_id(track["album"])
+				return image_request(album_id=album_id)
+		# use placeholder
+		if malojaconfig["FANCY_PLACEHOLDER_ART"]:
+			placeholder_url = "https://generative-placeholders.glitch.me/image?width=300&height=300&style="
+			if artist_id:
+				result['value'] = placeholder_url + f"tiles&colors={artist_id % 100}"
+			if track_id:
+				result['value'] = placeholder_url + f"triangles&colors={track_id % 100}"
+			if album_id:
+				result['value'] = placeholder_url + f"joy-division&colors={album_id % 100}"
+		else:
+			if artist_id:
+				result['value'] = "/static/svg/placeholder_artist.svg"
+			if track_id:
+				result['value'] = "/static/svg/placeholder_track.svg"
+			if album_id:
+				result['value'] = "/static/svg/placeholder_album.svg"
+	return result
+
+
+# because we use lazyload, we can allow our http requests to take a little while at least
+# not the full backend request, but a few seconds to give us time to fetch some images
+# because 503 retry-after doesn't seem to be honored
+# waiting holds a server thread though, so only a few requests may wait at the same time
+def wait_for_image(ids):
+	if not image_request_waiters.acquire(blocking=False):
+		return None
+	try:
+		deadline = time.monotonic() + MAX_SECONDS_TO_RESOLVE_REQUEST
+		while True:
+			with image_resolved:
+				# check while holding the lock: the resolver writes the cache before it notifies,
+				# so a result that arrives between this check and the wait can't be missed
+				result = get_image_from_cache(**ids)
+				remaining = deadline - time.monotonic()
+				if result is not None or remaining <= 0:
+					return result
+				image_resolved.wait(timeout=remaining)
+	finally:
+		image_request_waiters.release()
 
 
 
