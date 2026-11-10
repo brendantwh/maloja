@@ -459,7 +459,7 @@ def get_charts_artists(dbconn=None,resolve_ids=True,**keys):
 
 	if resolve_ids:
 		# only add associated info if we resolve
-		map = sqldb.get_associated_artist_map(artist_ids=[entry['artist_id'] for entry in result if 'artist_id' in entry])
+		map = sqldb.get_associated_artist_map(artist_ids=[entry['artist_id'] for entry in result if 'artist_id' in entry],dbconn=dbconn)
 		# copy the dicts so the cached chart isn't modified
 		result = [
 			{**entry, 'associated_artists': map[entry['artist_id']]} if 'artist_id' in entry else entry

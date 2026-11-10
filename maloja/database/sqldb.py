@@ -989,7 +989,7 @@ def get_scrobbles_of_track(track,since=None,to=None,resolve_references=True,limi
 	result = dbconn.execute(op).all()
 
 	if resolve_references:
-		result = scrobbles_db_to_dict(result)
+		result = scrobbles_db_to_dict(result,dbconn=dbconn)
 	#result = [scrobble_db_to_dict(row) for row in result]
 	return result
 
@@ -1018,7 +1018,7 @@ def get_scrobbles_of_album(album,since=None,to=None,resolve_references=True,limi
 	result = dbconn.execute(op).all()
 
 	if resolve_references:
-		result = scrobbles_db_to_dict(result)
+		result = scrobbles_db_to_dict(result,dbconn=dbconn)
 	#result = [scrobble_db_to_dict(row) for row in result]
 	return result
 
@@ -1736,7 +1736,7 @@ def get_scrobble(timestamp: int, include_internal=False, dbconn=None) -> Scrobbl
 	result = dbconn.execute(op).all()
 
 	scrobble = result[0]
-	return scrobbles_db_to_dict(rows=[scrobble], include_internal=include_internal)[0]
+	return scrobbles_db_to_dict(rows=[scrobble], include_internal=include_internal, dbconn=dbconn)[0]
 
 
 @cached_wrapper
