@@ -8,6 +8,8 @@ from doreah.regular import repeatdaily
 
 import urllib
 import math
+import hashlib
+from importlib import resources
 
 # templating
 from jinja2 import Environment, PackageLoader, select_autoescape
@@ -18,6 +20,25 @@ jinja_environment = Environment(
 	loader=PackageLoader('maloja', "web/jinja"),
 	autoescape=True,
 )
+
+
+# fingerprint of all static files, appended to asset urls (?v=...) so browsers can cache
+# them for a long time and still pick up every change, even without a version bump
+def compute_asset_version():
+	digest = hashlib.sha1()
+	def walk(folder, prefix=""):
+		for entry in sorted(folder.iterdir(), key=lambda e: e.name):
+			name = prefix + entry.name
+			if entry.is_dir():
+				walk(entry, name + "/")
+			else:
+				digest.update(name.encode())
+				digest.update(entry.read_bytes())
+	walk(resources.files('maloja') / 'web' / 'static')
+	return digest.hexdigest()[:12]
+
+ASSET_VERSION = compute_asset_version()
+jinja_environment.globals["asset_version"] = ASSET_VERSION
 
 
 @repeatdaily

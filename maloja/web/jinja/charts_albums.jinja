@@ -5,7 +5,7 @@
 {% import 'snippets/filterdescription.jinja' as filterdesc %}
 
 {% block scripts %}
-	<script src="/datechange.js" async></script>
+	<script src="/datechange.js?v={{ asset_version }}" async></script>
 {% endblock %}
 
 {% set charts = dbc.get_charts_albums(filterkeys,limitkeys,{'only_own_albums':False}) %}

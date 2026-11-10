@@ -165,6 +165,16 @@ def static_proxied_image(uuid):
 def login():
 	return auth.get_login_page()
 
+# templates add ?v=<fingerprint of all static files> to asset urls, so those urls change
+# whenever a file changes and can be cached for good
+def set_static_cache_header(response):
+	versioned = request.query.get("v") and not malojaconfig["DEV_MODE"]
+	if versioned and response.status_code in (200, 304):
+		response.set_header("Cache-Control", "public, max-age=31536000, immutable")
+	else:
+		response.set_header("Cache-Control", "public, max-age=3600")
+	return response
+
 # old
 @webserver.route("/<name>.<ext>")
 @webserver.route("/media/<name>.<ext>")
@@ -172,16 +182,14 @@ def static(name,ext):
 	assert ext in ["txt","ico","jpeg","jpg","png","less","js","ttf","css"]
 	staticfolder = resources.files('maloja') / 'web' / 'static'
 	response = static_file(ext + "/" + name + "." + ext,root=staticfolder)
-	response.set_header("Cache-Control", "public, max-age=3600")
-	return response
+	return set_static_cache_header(response)
 
 # new, direct reference
 @webserver.route("/static/<path:path>")
 def static(path):
 	staticfolder = resources.files('maloja') / 'web' / 'static'
 	response = static_file(path,root=staticfolder)
-	response.set_header("Cache-Control", "public, max-age=3600")
-	return response
+	return set_static_cache_header(response)
 
 # static files not supplied by the package
 @webserver.get("/static_custom/<category>/<path:path>")

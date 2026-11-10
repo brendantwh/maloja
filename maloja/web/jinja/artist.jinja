@@ -5,7 +5,7 @@
 {% import 'partials/awards_artist.jinja' as awards %}
 
 {% block scripts %}
-	<script src="/statselect.js"></script>
+	<script src="/statselect.js?v={{ asset_version }}"></script>
 {% endblock %}
 
 {% set artist = filterkeys.artist %}

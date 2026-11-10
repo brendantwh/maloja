@@ -4,7 +4,7 @@
 {% import 'snippets/links.jinja' as links %}
 
 {% block scripts %}
-	<script src="/statselect.js"></script>
+	<script src="/statselect.js?v={{ asset_version }}"></script>
 {% endblock %}
 
 {% set album = filterkeys.album %}
