@@ -151,9 +151,10 @@ class CleanerAgent:
 
 		# we'll leave these matching all bracket types so future changes
 		# won't require readaption
-		t = re.sub(r" [\(\[]as made famous by .*?[\)\]]","",t)
-		t = re.sub(r" [\(\[]originally by .*?[\)\]]","",t)
-		t = re.sub(r" [\(\[].*?Remaster.*?[\)\]]","",t)
+		# [^()\[\]] keeps a match inside one bracket group, so it can't eat a (feat. X) before it
+		t = re.sub(r" [\(\[]as made famous by [^()\[\]]*[\)\]]","",t)
+		t = re.sub(r" [\(\[]originally by [^()\[\]]*[\)\]]","",t)
+		t = re.sub(r" [\(\[][^()\[\]]*Remaster[^()\[\]]*[\)\]]","",t)
 
 		for s in malojaconfig["REMOVE_FROM_TITLE"]:
 			if s in t:

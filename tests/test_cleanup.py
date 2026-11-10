@@ -28,6 +28,7 @@ PARSER_CASES = [
 	pytest.param("Nirvana", "Come As You Are - Live", ["Nirvana"], "Come As You Are - Live", id="live-kept"),
 	pytest.param("A", "Song (X Remix)", ["A"], "Song (X Remix)", id="remix-kept"),
 	pytest.param("A (ftX B)", "Song", ["A (ftX B)"], "Song", id="artist-delimiter-escaped"),
+	pytest.param("A", "Song (feat. B) (Remastered)", ["A", "B"], "Song (feat. B)", id="feat-before-remaster"),
 ]
 
 
