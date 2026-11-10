@@ -23,6 +23,7 @@ from .pkg_global.conf import malojaconfig, data_dir, auth
 from .pkg_global import conf
 from .jinjaenv.context import jinja_environment
 from .apis import init_apis, apikeystore
+from .web.compression import GzipMiddleware
 
 
 from .dev.profiler import profile
@@ -296,7 +297,7 @@ def run_server():
 		#run(webserver, host=HOST, port=MAIN_PORT, server='waitress')
 		listen = f"{HOST}:{PORT}"
 		log(f"Listening on {listen}")
-		waitress.serve(webserver, listen=listen, threads=THREADS)
+		waitress.serve(GzipMiddleware(webserver), listen=listen, threads=THREADS)
 	except OSError:
 		log("Error. Is another Maloja process already running?")
 		raise
