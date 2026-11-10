@@ -23,7 +23,9 @@ PARSER_CASES = [
 	pytest.param("Calvin Harris", "One Kiss (with Dua Lipa)", ["Calvin Harris", "Dua Lipa"], "One Kiss (with Dua Lipa)", id="title-with"),
 	pytest.param("A", "Dancing with Myself", ["A"], "Dancing with Myself", id="title-with-bare-kept"),
 	pytest.param("A", "Song (2011 Remaster)", ["A"], "Song", id="remaster-bracket"),
-	pytest.param("The Beatles", "Let It Be - Remastered 2009", ["The Beatles"], "Let It Be", id="remaster-dash", marks=phase2("dash remaster suffix")),
+	pytest.param("The Beatles", "Let It Be - Remastered 2009", ["The Beatles"], "Let It Be", id="remaster-dash"),
+	pytest.param("A", "Song - 2011 Remaster", ["A"], "Song", id="remaster-dash-year-first"),
+	pytest.param("Queen", "Bohemian Rhapsody - Live Aid / Remastered", ["Queen"], "Bohemian Rhapsody - Live Aid", id="live-remaster-combined"),
 	pytest.param("A", "Song - Radio Edit", ["A"], "Song", id="radio-edit-dash", marks=phase2("dash radio edit suffix")),
 	pytest.param("A", "Song - Mono", ["A"], "Song", id="mono-dash", marks=phase2("dash mono suffix")),
 	pytest.param("Nirvana", "Come As You Are - Live", ["Nirvana"], "Come As You Are - Live", id="live-kept"),
@@ -44,6 +46,7 @@ def test_parser(agent, artists_in, title_in, artists_out, title_out):
 # each behaviour change can be switched off (or on) with its own setting
 SETTINGS_CASES = [
 	pytest.param({"DELIMITERS_FEAT_TITLE": []}, "Calvin Harris", "One Kiss (with Dua Lipa)", ["Calvin Harris"], "One Kiss (with Dua Lipa)", id="title-with-off"),
+	pytest.param({"TITLE_MERGE_REMASTERS": False}, "A", "Song - Remastered 2009 (2011 Remaster)", ["A"], "Song - Remastered 2009 (2011 Remaster)", id="remasters-off"),
 ]
 
 

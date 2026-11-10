@@ -154,7 +154,7 @@ class CleanerAgent:
 		# [^()\[\]] keeps a match inside one bracket group, so it can't eat a (feat. X) before it
 		t = re.sub(r" [\(\[]as made famous by [^()\[\]]*[\)\]]","",t)
 		t = re.sub(r" [\(\[]originally by [^()\[\]]*[\)\]]","",t)
-		t = re.sub(r" [\(\[][^()\[\]]*Remaster[^()\[\]]*[\)\]]","",t)
+		t = self.stripVariants(t)
 
 		for s in malojaconfig["REMOVE_FROM_TITLE"]:
 			if s in t:
@@ -164,6 +164,36 @@ class CleanerAgent:
 		#for p in self.plugin_titleparsers:
 		#	t = p(t).strip()
 		return t
+
+	# versions of a song that should count as the same track, each behind its own setting
+	# (live versions and remixes are deliberately not here, they stay separate tracks)
+	title_variants = [
+		("TITLE_MERGE_REMASTERS", r".*\bremaster(ed)?\b.*"),
+	]
+
+	def stripVariants(self,t):
+		patterns = [p for setting,p in self.title_variants if malojaconfig[setting]]
+		if not patterns:
+			return t
+
+		# a tag can combine several things, e.g. "Live Aid / Remastered": only drop the variant parts
+		def strip_parts(segment):
+			parts = [p for p in segment.split(" / ") if not any(re.fullmatch(pat,p.strip(),flags=re.IGNORECASE) for pat in patterns)]
+			return " / ".join(parts)
+
+		def strip_bracket(match):
+			rest = strip_parts(match.group(1))
+			return f" ({rest})" if rest else ""
+
+		stripped = re.sub(r" \(([^()]*)\)",strip_bracket,t)
+
+		# Spotify style suffix: "Let It Be - Remastered 2009"
+		head,dash,tail = stripped.rpartition(" - ")
+		if head and "(" not in tail:
+			rest = strip_parts(tail)
+			stripped = head + (dash + rest if rest else "")
+
+		return stripped if stripped.strip() else t
 
 	def parseTitleForArtists(self,title):
 		artists = []
