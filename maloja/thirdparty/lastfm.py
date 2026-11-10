@@ -1,4 +1,4 @@
-from . import MetadataInterface, ProxyScrobbleInterface, utf
+from . import MetadataInterface, ProxyScrobbleInterface, utf, REQUEST_TIMEOUT
 import hashlib
 import requests
 import xml.etree.ElementTree as ElementTree
@@ -62,6 +62,7 @@ class LastFM(MetadataInterface, ProxyScrobbleInterface):
 			try:
 				response = requests.post(
 					url=self.proxyscrobble['scrobbleurl'],
+					timeout=REQUEST_TIMEOUT,
 					params=self.query_compose({
 						"method":"auth.getMobileSession",
 						"username":self.settings["username"],

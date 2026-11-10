@@ -1,4 +1,4 @@
-from . import MetadataInterface
+from . import MetadataInterface, REQUEST_TIMEOUT
 import requests
 import time
 import threading
@@ -38,6 +38,7 @@ class MusicBrainz(MetadataInterface):
 				searchstr += f' artist:"{artist}"'
 			res = requests.get(**{
 				"url":"https://musicbrainz.org/ws/2/release",
+				"timeout":REQUEST_TIMEOUT,
 				"params":{
 					"fmt":"json",
 					"query":searchstr
@@ -54,6 +55,7 @@ class MusicBrainz(MetadataInterface):
 				try:
 					response = requests.get(
 						f"https://coverartarchive.org/{coverartendpoint}/{mbid}",
+						timeout=REQUEST_TIMEOUT,
 						params={
 							"fmt":"json"
 						},
@@ -95,6 +97,7 @@ class MusicBrainz(MetadataInterface):
 				searchstr += f' artist:"{artist}"'
 			res = requests.get(**{
 				"url":"https://musicbrainz.org/ws/2/recording",
+				"timeout":REQUEST_TIMEOUT,
 				"params":{
 					"fmt":"json",
 					"query":searchstr
@@ -111,6 +114,7 @@ class MusicBrainz(MetadataInterface):
 				try:
 					response = requests.get(
 						f"https://coverartarchive.org/{coverartendpoint}/{mbid}",
+						timeout=REQUEST_TIMEOUT,
 						params={
 							"fmt":"json"
 						}

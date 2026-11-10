@@ -1,4 +1,4 @@
-from . import MetadataInterface, utf, b64
+from . import MetadataInterface, utf, b64, REQUEST_TIMEOUT
 import requests
 from threading import Timer
 from doreah.logging import log
@@ -34,6 +34,7 @@ class Spotify(MetadataInterface):
 			try:
 				keys = {
 					"url":"https://accounts.spotify.com/api/token",
+					"timeout":REQUEST_TIMEOUT,
 					"headers":{
 						"Authorization":"Basic " + b64(utf(self.settings["apiid"] + ":" + self.settings["secret"])).decode("utf-8"),
 						"User-Agent": self.useragent

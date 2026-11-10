@@ -1,4 +1,4 @@
-from . import ProxyScrobbleInterface, ImportInterface
+from . import ProxyScrobbleInterface, ImportInterface, REQUEST_TIMEOUT
 import requests
 from doreah.logging import log
 import json
@@ -32,7 +32,7 @@ class OtherMalojaInstance(ProxyScrobbleInterface, ImportInterface):
 	def get_remote_scrobbles(self):
 		url = f"{self.settings['instance']}/apis/mlj_1/scrobbles"
 
-		response = requests.get(url)
+		response = requests.get(url, timeout=REQUEST_TIMEOUT)
 		data = response.json()
 
 		for scrobble in data['list']:

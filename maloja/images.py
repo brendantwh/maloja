@@ -152,7 +152,7 @@ def dl_image(url):
 		log(f"Blocked SSRF attempt: {url}")
 		return None
 	try:
-		r = requests.get(url)
+		r = requests.get(url, timeout=thirdparty.REQUEST_TIMEOUT)
 		mime = r.headers.get('content-type') or 'image/jpg'
 		data = io.BytesIO(r.content).read()
 		#uri = datauri.DataURI.make(mime,charset='ascii',base64=True,data=data)

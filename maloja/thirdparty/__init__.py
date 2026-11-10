@@ -38,6 +38,10 @@ class RateLimitExceeded(Exception):
 # requests and then when all the responses come in we suddenly can't load pages anymore
 thirdpartylock = BoundedSemaphore(4)
 
+# (connect, read) timeout in seconds for every outgoing request
+# without this, a single unresponsive service can block a thread forever
+REQUEST_TIMEOUT = (5, 30)
+
 
 def import_scrobbles(identifier):
 	for service in services['import']:
@@ -156,6 +160,7 @@ class ProxyScrobbleInterface(GenericInterface,abstract=True):
 	def scrobble(self,artists,title,timestamp):
 		response = requests.post(
 			url=self.proxyscrobble["scrobbleurl"],
+			timeout=REQUEST_TIMEOUT,
 			data=self.proxyscrobble_postdata(artists,title,timestamp),
 			headers={
 				"User-Agent":self.useragent
@@ -217,6 +222,7 @@ class MetadataInterface(GenericInterface,abstract=True):
 		titlestring = urllib.parse.quote(title)
 		response = requests.get(
 			self.metadata["trackurl"].format(artist=artiststring,title=titlestring,**self.settings),
+			timeout=REQUEST_TIMEOUT,
 			headers={
 				"User-Agent":self.useragent
 			}
@@ -237,6 +243,7 @@ class MetadataInterface(GenericInterface,abstract=True):
 		artiststring = urllib.parse.quote(artist)
 		response = requests.get(
 			self.metadata["artisturl"].format(artist=artiststring,**self.settings),
+			timeout=REQUEST_TIMEOUT,
 			headers={
 				"User-Agent":self.useragent
 			}
@@ -259,6 +266,7 @@ class MetadataInterface(GenericInterface,abstract=True):
 		titlestring = urllib.parse.quote(title)
 		response = requests.get(
 			self.metadata["albumurl"].format(artist=artiststring,title=titlestring,**self.settings),
+			timeout=REQUEST_TIMEOUT,
 			headers={
 				"User-Agent":self.useragent
 			}
