@@ -688,7 +688,7 @@ def edit_album(album_id: int, albumupdatedict: dict, dbconn=None) -> bool:
 
 	existing_album_id = get_album_id(changedalbum, create_new=False, dbconn=dbconn)
 	if existing_album_id not in (None, album_id):
-		raise exc.TrackExists(changedalbum)
+		raise exc.AlbumExists(changedalbum)
 
 	op = DB['albums'].update().where(
 		DB['albums'].c.id == album_id
