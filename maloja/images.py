@@ -1,6 +1,7 @@
 from .pkg_global.conf import data_dir, malojaconfig
 from . import thirdparty
 from . import database
+from .database.pragmas import apply_sqlite_pragmas
 
 from doreah.logging import log
 
@@ -36,6 +37,7 @@ except:
 
 DB = {}
 engine = sql.create_engine(f"sqlite:///{data_dir['cache']('imagecache.sqlite')}", echo = False)
+apply_sqlite_pragmas(engine)
 meta = sql.MetaData()
 
 dblock = Lock()

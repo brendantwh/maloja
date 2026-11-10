@@ -33,6 +33,7 @@ Settings File			| Environment Variable			| Type			| Description
 `db_max_memory`	| `MALOJA_DB_MAX_MEMORY`  | Integer | RAM Usage in percent at which Maloja should no longer increase its database cache.
 `use_request_cache`	| `MALOJA_USE_REQUEST_CACHE`  | Boolean | Use request-local DB Cache
 `use_global_cache`	| `MALOJA_USE_GLOBAL_CACHE`  | Boolean | This is vital for Maloja's performance. Do not disable this unless you have a strong reason to.
+`db_wal_mode`	| `MALOJA_DB_WAL_MODE`  | Boolean | Lets pages load while scrobbles are being written. Disable this if your data directory is on a network share (NFS/SMB), where WAL mode is not safe.
 **Fluff**
 `scrobbles_gold`	| `MALOJA_SCROBBLES_GOLD`  | Integer | How many scrobbles a track needs to be considered 'Gold' status
 `scrobbles_platinum`	| `MALOJA_SCROBBLES_PLATINUM`  | Integer | How many scrobbles a track needs to be considered 'Platinum' status

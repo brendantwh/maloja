@@ -168,7 +168,8 @@ malojaconfig = Configuration(
 			"cache_expire_negative":(tp.Integer(),								"Image Cache Negative Expiration",		5,		"Days until failed image fetches are reattempted"),
 			"db_max_memory":(tp.Integer(min=0,max=100),							"RAM Percentage soft limit",			70,		"RAM Usage in percent at which Maloja should no longer increase its database cache."),
 			"use_request_cache":(tp.Boolean(),									"Use request-local DB Cache",			False),
-			"use_global_cache":(tp.Boolean(),									"Use global DB Cache",					True,	"This is vital for Maloja's performance. Do not disable this unless you have a strong reason to.")
+			"use_global_cache":(tp.Boolean(),									"Use global DB Cache",					True,	"This is vital for Maloja's performance. Do not disable this unless you have a strong reason to."),
+			"db_wal_mode":(tp.Boolean(),										"Use SQLite WAL mode",					True,	"Lets pages load while scrobbles are being written. Disable this if your data directory is on a network share (NFS/SMB), where WAL mode is not safe.")
 		},
 		"Fluff":{
 			"scrobbles_gold":(tp.Integer(),										"Scrobbles for Gold (Track)",	250,				"How many scrobbles a track needs to be considered 'Gold' status"),

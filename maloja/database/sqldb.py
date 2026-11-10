@@ -10,6 +10,7 @@ from threading import Lock
 
 from ..pkg_global.conf import data_dir
 from ..malojatime import register_scrobbletime
+from .pragmas import apply_sqlite_pragmas
 from .dbcache import cached_wrapper, cached_wrapper_individual, invalidate_caches, invalidate_entity_cache
 from . import exceptions as exc
 from . import no_aux_mode
@@ -123,6 +124,7 @@ DBTABLES = {
 DB = {}
 
 engine = sql.create_engine(f"sqlite:///{data_dir['scrobbles']('malojadb.sqlite')}", echo = False)
+apply_sqlite_pragmas(engine)
 meta = sql.MetaData()
 
 # create table definitions
