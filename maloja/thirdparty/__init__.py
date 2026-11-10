@@ -331,7 +331,8 @@ class MetadataInterface(GenericInterface,abstract=True):
 	def validate_image_url(self, url):
 		parsed = urllib.parse.urlparse(url)
 		if parsed.scheme == "http":
-			parsed.scheme = "https"
+			# ParseResult is an immutable namedtuple
+			parsed = parsed._replace(scheme="https")
 		if parsed.scheme != "https":
 			return False
 		host = parsed.hostname
