@@ -102,8 +102,16 @@ def get_image_from_cache(track_id=None,artist_id=None,album_id=None):
 	return None # no cache entry
 
 def set_image_in_cache(url,track_id=None,artist_id=None,album_id=None,local=False):
-	remove_image_from_cache(track_id=track_id,artist_id=artist_id,album_id=album_id)
 	entity_id, table = get_id_and_table(track_id=track_id,artist_id=artist_id,album_id=album_id)
+
+	# download before taking the lock, so one slow download doesn't hold up every other cache write
+	# (and the old entry keeps being served until the new one is ready)
+	if not local and malojaconfig["PROXY_IMAGES"] and url is not None:
+		localproxyurl = dl_image(url)
+	else:
+		localproxyurl = None
+
+	remove_image_from_cache(track_id=track_id,artist_id=artist_id,album_id=album_id)
 
 	with dblock:
 		now = int(datetime.datetime.now().timestamp())
@@ -111,11 +119,6 @@ def set_image_in_cache(url,track_id=None,artist_id=None,album_id=None,local=Fals
 			expire = now + (malojaconfig["CACHE_EXPIRE_NEGATIVE"] * 24 * 3600)
 		else:
 			expire = now + (malojaconfig["CACHE_EXPIRE_POSITIVE"] * 24 * 3600)
-
-		if not local and malojaconfig["PROXY_IMAGES"] and url is not None:
-			localproxyurl = dl_image(url)
-		else:
-			localproxyurl = None
 
 		with engine.begin() as conn:
 			op = DB[table].insert().values(
