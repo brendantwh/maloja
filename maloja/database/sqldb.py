@@ -456,7 +456,9 @@ def delete_scrobble(scrobble_id: int, dbconn=None) -> bool:
 def add_track_to_album(track_id: int, album_id: int, replace=False, dbconn=None) -> bool:
 
 	conditions = [
-		DB['tracks'].c.id == track_id
+		DB['tracks'].c.id == track_id,
+		# skip the write (and the cache invalidation below) if the album is already set
+		DB['tracks'].c.album_id.is_distinct_from(album_id)
 	]
 	if not replace:
 		# if we dont want replacement, just update if there is no album yet
@@ -472,7 +474,8 @@ def add_track_to_album(track_id: int, album_id: int, replace=False, dbconn=None)
 
 	result = dbconn.execute(op)
 
-	invalidate_entity_cache() # because album info has changed
+	if result.rowcount > 0:
+		invalidate_entity_cache() # because album info has changed
 	#invalidate_caches() # changing album info of tracks will change album charts
 	# ARE YOU FOR REAL
 	# it just took me like 3 hours to figure out that this one line makes the artist page load slow because
