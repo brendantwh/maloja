@@ -40,7 +40,7 @@ DBTABLES = {
 			("track_id",            sql.Integer, sql.ForeignKey('tracks.id'),     {}),
 			("extra",               sql.String,                                   {})
 		],
-		'extraargs':(),'extrakwargs':{}
+		'extraargs':(sql.Index('ix_scrobbles_track_id_timestamp', 'track_id', 'timestamp'),),'extrakwargs':{}
 	},
 	'tracks':{
 		'columns':[
@@ -50,7 +50,10 @@ DBTABLES = {
 			("length",              sql.Integer,                                  {}),
 			("album_id",           sql.Integer, sql.ForeignKey('albums.id'),      {})
 		],
-		'extraargs':(),'extrakwargs':{'sqlite_autoincrement':True}
+		'extraargs':(
+			sql.Index('ix_tracks_title_normalized', 'title_normalized'),
+			sql.Index('ix_tracks_album_id', 'album_id'),
+		),'extrakwargs':{'sqlite_autoincrement':True}
 	},
 	'artists':{
 		'columns':[
@@ -58,7 +61,7 @@ DBTABLES = {
 			("name",                sql.String,                                   {}),
 			("name_normalized",     sql.String,                                   {})
 		],
-		'extraargs':(),'extrakwargs':{'sqlite_autoincrement':True}
+		'extraargs':(sql.Index('ix_artists_name_normalized', 'name_normalized'),),'extrakwargs':{'sqlite_autoincrement':True}
 	},
 	'albums':{
 		'columns':[
@@ -68,7 +71,7 @@ DBTABLES = {
 			#("albumartist",     sql.String,                                   {})
 			# when an album has no artists, always use 'Various Artists'
 		],
-		'extraargs':(),'extrakwargs':{'sqlite_autoincrement':True}
+		'extraargs':(sql.Index('ix_albums_albtitle_normalized', 'albtitle_normalized'),),'extrakwargs':{'sqlite_autoincrement':True}
 	},
 	'trackartists':{
 		'columns':[
@@ -76,7 +79,11 @@ DBTABLES = {
 			("artist_id",           sql.Integer, sql.ForeignKey('artists.id'),    {}),
 			("track_id",            sql.Integer, sql.ForeignKey('tracks.id'),     {})
 		],
-		'extraargs':(sql.UniqueConstraint('artist_id', 'track_id'),),'extrakwargs':{}
+		'extraargs':(
+			sql.UniqueConstraint('artist_id', 'track_id'),
+			# the unique index starts with artist_id, so it can't serve lookups by track
+			sql.Index('ix_trackartists_track_id_artist_id', 'track_id', 'artist_id'),
+		),'extrakwargs':{}
 	},
 	'albumartists':{
 		'columns':[
@@ -84,7 +91,10 @@ DBTABLES = {
 			("artist_id",           sql.Integer, sql.ForeignKey('artists.id'),    {}),
 			("album_id",            sql.Integer, sql.ForeignKey('albums.id'),     {})
 		],
-		'extraargs':(sql.UniqueConstraint('artist_id', 'album_id'),),'extrakwargs':{}
+		'extraargs':(
+			sql.UniqueConstraint('artist_id', 'album_id'),
+			sql.Index('ix_albumartists_album_id', 'album_id'),
+		),'extrakwargs':{}
 	},
 #	'albumtracks':{
 #		# tracks can be in multiple albums
@@ -100,7 +110,10 @@ DBTABLES = {
 			("source_artist",       sql.Integer, sql.ForeignKey('artists.id'),    {}),
 			("target_artist",       sql.Integer, sql.ForeignKey('artists.id'),    {})
 		],
-		'extraargs':(sql.UniqueConstraint('source_artist', 'target_artist'),),'extrakwargs':{}
+		'extraargs':(
+			sql.UniqueConstraint('source_artist', 'target_artist'),
+			sql.Index('ix_associated_artists_target_artist', 'target_artist'),
+		),'extrakwargs':{}
 	}
 }
 
@@ -139,6 +152,21 @@ with engine.begin() as conn:
 				# TODO figure out how to compile foreign key references!
 			except sql.exc.OperationalError as e:
 				pass
+
+# create_all only creates indexes along with new tables, so add missing ones to old databases
+with engine.begin() as conn:
+	existing_indexes = {
+		row[0] for row in conn.execute(sql.text("SELECT name FROM sqlite_master WHERE type = 'index'"))
+	}
+	new_indexes = [
+		index for table in DB.values() for index in table.indexes
+		if index.name not in existing_indexes
+	]
+	# no ANALYZE afterwards: with its statistics, SQLite picks a much slower plan for the
+	# large IN (...) lookups that resolve chart entries (e.g. 290 ms instead of 4 ms)
+	for index in new_indexes:
+		log(f"Creating database index {index.name}, this might take a moment...")
+		index.create(conn, checkfirst=True)
 
 
 # adding a scrobble could consist of multiple write operations that sqlite doesn't
@@ -1038,6 +1066,8 @@ def get_artists_of_track(track_id,resolve_references=True,dbconn=None):
 
 	op = DB['trackartists'].select().where(
 		DB['trackartists'].c.track_id==track_id
+	).order_by(
+		DB['trackartists'].c.id # keep artists in the order they were added
 	)
 	result = dbconn.execute(op).all()
 
@@ -1414,6 +1444,9 @@ def get_artists_of_tracks(track_ids,dbconn=None):
 		DB['trackartists'].c.track_id
 	).select_from(jointable).where(
 		DB['trackartists'].c.track_id.in_(track_ids)
+	).order_by(
+		# keep artists in the order they were added, whichever index the query uses
+		DB['trackartists'].c.id
 	)
 	result = dbconn.execute(op).all()
 
@@ -1438,6 +1471,9 @@ def get_artists_of_albums(album_ids,dbconn=None):
 		DB['albumartists'].c.album_id
 	).select_from(jointable).where(
 		DB['albumartists'].c.album_id.in_(album_ids)
+	).order_by(
+		# keep artists in the order they were added, whichever index the query uses
+		DB['albumartists'].c.id
 	)
 	result = dbconn.execute(op).all()
 
