@@ -5,10 +5,6 @@ import pytest
 from maloja import cleanup
 
 
-def phase2(reason):
-	return pytest.mark.xfail(strict=True, reason=f"phase 2: {reason}")
-
-
 # characterisation: pins current behaviour that is still an open decision
 # (see _artifacts/2026-11-10_parser-and-rules-improvements.md, section 7)
 PARSER_CASES = [
@@ -28,7 +24,8 @@ PARSER_CASES = [
 	pytest.param("Queen", "Bohemian Rhapsody - Live Aid / Remastered", ["Queen"], "Bohemian Rhapsody - Live Aid", id="live-remaster-combined"),
 	pytest.param("A", "Song - Radio Edit", ["A"], "Song", id="radio-edit-dash"),
 	pytest.param("A", "Song (Single Version)", ["A"], "Song", id="single-version"),
-	pytest.param("A", "Song - Mono", ["A"], "Song", id="mono-dash", marks=phase2("dash mono suffix")),
+	pytest.param("A", "Song - Mono", ["A"], "Song", id="mono-dash"),
+	pytest.param("A", "Song (2009 Stereo Mix)", ["A"], "Song", id="stereo-mix-bracket"),
 	pytest.param("Nirvana", "Come As You Are - Live", ["Nirvana"], "Come As You Are - Live", id="live-kept"),
 	pytest.param("A", "Song (X Remix)", ["A"], "Song (X Remix)", id="remix-kept"),
 	pytest.param("A (ftX B)", "Song", ["A (ftX B)"], "Song", id="artist-delimiter-escaped"),
@@ -49,6 +46,7 @@ SETTINGS_CASES = [
 	pytest.param({"DELIMITERS_FEAT_TITLE": []}, "Calvin Harris", "One Kiss (with Dua Lipa)", ["Calvin Harris"], "One Kiss (with Dua Lipa)", id="title-with-off"),
 	pytest.param({"TITLE_MERGE_REMASTERS": False}, "A", "Song - Remastered 2009 (2011 Remaster)", ["A"], "Song - Remastered 2009 (2011 Remaster)", id="remasters-off"),
 	pytest.param({"TITLE_MERGE_EDITS": False}, "A", "Song - Single Edit", ["A"], "Song - Single Edit", id="edits-off"),
+	pytest.param({"TITLE_MERGE_MONO_STEREO": False}, "A", "Song - Mono", ["A"], "Song - Mono", id="mono-stereo-off"),
 ]
 
 

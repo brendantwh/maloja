@@ -170,6 +170,7 @@ class CleanerAgent:
 	title_variants = [
 		("TITLE_MERGE_REMASTERS", r".*\bremaster(ed)?\b.*"),
 		("TITLE_MERGE_EDITS", r"(\d{4} )?(radio|single) (edit|version)"),
+		("TITLE_MERGE_MONO_STEREO", r"(\d{4} )?(mono|stereo)( (version|mix))?"),
 	]
 
 	def stripVariants(self,t):
