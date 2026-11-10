@@ -29,6 +29,8 @@ PARSER_CASES = [
 	pytest.param("A", "Song (X Remix)", ["A"], "Song (X Remix)", id="remix-kept"),
 	pytest.param("A (ftX B)", "Song", ["A (ftX B)"], "Song", id="artist-delimiter-escaped"),
 	pytest.param("A", "Song (feat. B) (Remastered)", ["A", "B"], "Song (feat. B)", id="feat-before-remaster"),
+	pytest.param("A", "A Feat of Strength", ["A"], "A Feat of Strength", id="feat-word-not-delimiter"),
+	pytest.param("A", "Song feat. B", ["A", "B"], "Song feat. B", id="feat-dotted-bare"),
 ]
 
 

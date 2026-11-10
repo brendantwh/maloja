@@ -168,11 +168,14 @@ class CleanerAgent:
 	def parseTitleForArtists(self,title):
 		artists = []
 		for delimiter in malojaconfig["DELIMITERS_FEAT"]:
-			for pattern in [
+			patterns = [
 				r" [\(\[]" + re.escape(delimiter) + r" (.*?)[\)\]]",
 				r" - " + re.escape(delimiter) + r" (.*)",
-				r" " + re.escape(delimiter) + r" (.*)"
-			]:
+			]
+			# without brackets or a dash, bare words like "ft" or "feat" are too often part of the title
+			if delimiter.endswith(".") or delimiter.lower() == "featuring":
+				patterns.append(r" " + re.escape(delimiter) + r" (.*)")
+			for pattern in patterns:
 				matches = re.finditer(pattern,title,flags=re.IGNORECASE)
 				for match in matches:
 					title = match.re.sub('',match.string) # Remove matched part
