@@ -376,7 +376,7 @@ def image_request(artist_id=None,track_id=None,album_id=None):
 				return image_request(album_id=album_id)
 		# use placeholder
 		if malojaconfig["FANCY_PLACEHOLDER_ART"]:
-			placeholder_url = "https://generative-placeholders.glitch.me/image?width=300&height=300&style="
+			placeholder_url = "https://generative-placeholders.stefanbohacek.com/image?width=300&height=300&style="
 			if artist_id:
 				result['value'] = placeholder_url + f"tiles&colors={artist_id % 100}"
 			if track_id:
