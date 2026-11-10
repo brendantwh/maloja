@@ -42,7 +42,10 @@ class CleanerAgent:
 	def fullclean(self,artist,title,album):
 		artists = self.parseArtists(self.removespecial(artist))
 		title = self.parseTitle(self.removespecial(title))
-		(_,moreartists) = self.parseTitleForArtists(title)
+		(stripped,moreartists) = self.parseTitleForArtists(title)
+		# off by default: the full title, including "(feat. X)", is kept on purpose
+		if malojaconfig["TITLE_STRIP_FEAT"]:
+			title = stripped
 		artists += moreartists
 		if title.lower() in self.rules_addartists:
 			reqartists, allartists = self.rules_addartists[title.lower()]

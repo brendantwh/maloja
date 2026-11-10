@@ -204,6 +204,7 @@ malojaconfig = Configuration(
 			"album_information_trust":(tp.Choice({'first':"First",'last':"Last",'majority':"Majority"}),	"Album Information Authority","first",															"Whether to trust the first album information that is sent with a track or update every time a different album is sent"),
 			"invalid_artists":(tp.Set(tp.String()),								"Invalid Artists",				["[Unknown Artist]","Unknown Artist","Spotify"],											"Artists that should be discarded immediately"),
 			"remove_from_title":(tp.Set(tp.String()),							"Remove from Title",			["(Original Mix)","(Radio Edit)","(Album Version)","(Explicit Version)","(Bonus Track)"],	"Phrases that should be removed from song titles"),
+			"title_strip_feat":(tp.Boolean(),									"Remove Featured Artists from Title",False,																					"Remove '(feat. X)' from song titles once the featured artists are detected, so 'Song (feat. X)' and 'Song' count as one track"),
 			"title_merge_remasters":(tp.Boolean(),								"Merge Remasters",				True,																						"Remove remaster tags like '(2011 Remaster)' or ' - Remastered 2009' so remasters count as the original track"),
 			"title_merge_edits":(tp.Boolean(),									"Merge Radio and Single Edits",	True,																						"Remove tags like ' - Radio Edit' or '(Single Version)' so edits count as the original track"),
 			"title_merge_mono_stereo":(tp.Boolean(),							"Merge Mono and Stereo Versions",True,																						"Remove tags like ' - Mono' or '(2009 Stereo Mix)' so mono and stereo versions count as the original track"),

@@ -47,6 +47,8 @@ SETTINGS_CASES = [
 	pytest.param({"TITLE_MERGE_REMASTERS": False}, "A", "Song - Remastered 2009 (2011 Remaster)", ["A"], "Song - Remastered 2009 (2011 Remaster)", id="remasters-off"),
 	pytest.param({"TITLE_MERGE_EDITS": False}, "A", "Song - Single Edit", ["A"], "Song - Single Edit", id="edits-off"),
 	pytest.param({"TITLE_MERGE_MONO_STEREO": False}, "A", "Song - Mono", ["A"], "Song - Mono", id="mono-stereo-off"),
+	pytest.param({"TITLE_STRIP_FEAT": True}, "Daft Punk", "Get Lucky (feat. Pharrell Williams)", ["Daft Punk", "Pharrell Williams"], "Get Lucky", id="strip-feat-on"),
+	pytest.param({"TITLE_STRIP_FEAT": True}, "A", "Song (with B) - feat. C", ["A", "B", "C"], "Song", id="strip-feat-on-with-and-dash"),
 ]
 
 
