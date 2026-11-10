@@ -2,6 +2,8 @@ import tarfile
 import time
 import glob
 import os
+import sqlite3
+import tempfile
 from ...pkg_global.conf import dir_settings
 from pathlib import PurePath
 
@@ -41,11 +43,39 @@ def backup(targetfolder=None,include_images=False):
 	outputfile = os.path.join(targetfolder,filename)
 	assert not os.path.exists(outputfile)
 
-	with tarfile.open(name=outputfile,mode="x:gz") as archive:
+	with tarfile.open(name=outputfile,mode="x:gz") as archive, tempfile.TemporaryDirectory() as tmpdir:
 		for category, filelist in real_files.items():
 			for f in filelist:
 				p = PurePath(f)
 				r = p.relative_to(dir_settings[category])
-				archive.add(f,arcname=os.path.join(category,r))
+				source = f
+				if is_sqlite_database(f):
+					# copying a database file that's in use can produce an inconsistent copy
+					# (and misses anything still in the WAL file), so archive a snapshot instead
+					source = os.path.join(tmpdir,"snapshot.sqlite")
+					snapshot_sqlite_database(f,source)
+				archive.add(source,arcname=os.path.join(category,r))
+				if source != f:
+					os.remove(source)
 	log("Backup created: " + col['yellow'](outputfile))
 	return outputfile
+
+
+SQLITE_HEADER = b"SQLite format 3\x00"
+
+def is_sqlite_database(path):
+	if not os.path.isfile(path):
+		return False
+	with open(path,'rb') as fd:
+		return fd.read(len(SQLITE_HEADER)) == SQLITE_HEADER
+
+def snapshot_sqlite_database(path,target):
+	# the backup api gives a consistent copy even while the server is writing
+	src = sqlite3.connect(path)
+	dst = sqlite3.connect(target)
+	try:
+		with dst:
+			src.backup(dst)
+	finally:
+		dst.close()
+		src.close()
