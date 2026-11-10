@@ -14,17 +14,21 @@
 		<meta name="color-scheme" content="dark" />
 		<meta name="darkreader" content="wat" />
 
+		<!-- maloja.css @imports these, so start downloading them right away instead of one after another -->
+		<link rel="preload" href="/grisons.css" as="style" />
+		<link rel="preload" href="/grisonsfont.css" as="style" />
 		<link rel="stylesheet" href="/maloja.css" />
 		<link rel="stylesheet" href="/static/css/themes/{{ settings.theme }}.css" />
 		{% for cssf in conf.custom_css_files %}
 			<link rel="stylesheet" href="/static_custom/css/{{ cssf }}" />
 		{% endfor %}
 
-		<script src="/search.js"></script>
-		<script src="/neopolitan.js"></script>
-		<script src="/upload.js"></script>
-		<script src="/notifications.js"></script>
-		<script src="/edit.js"></script>
+		<!-- deferred scripts run in order after the page is parsed, before DOMContentLoaded -->
+		<script src="/search.js" defer></script>
+		<script src="/neopolitan.js" defer></script>
+		<script src="/upload.js" defer></script>
+		<script src="/notifications.js" defer></script>
+		<script src="/edit.js" defer></script>
 		<script>
 		const defaultpicks = {
 			topartists: '{{ settings["DEFAULT_RANGE_STARTPAGE"] }}',

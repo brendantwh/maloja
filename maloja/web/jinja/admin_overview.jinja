@@ -15,25 +15,28 @@
 
 			return 0;
 		}
-		neo.xhttprequest("https://pypi.org/pypi/malojaserver/json",{},"GET",json=true).then((response)=>{
-			result = JSON.parse(response.responseText);
-			latestvers = result.info.version.split(".");
-
-			neo.xhttprequest("/apis/mlj_1/serverinfo",{},"GET",json=true).then((response)=>{
-
+		// neopolitan.js is deferred, so wait until it has run (this also guarantees the elements exist)
+		document.addEventListener('DOMContentLoaded', function() {
+			neo.xhttprequest("https://pypi.org/pypi/malojaserver/json",{},"GET",json=true).then((response)=>{
 				result = JSON.parse(response.responseText);
-				thisvers = result.version;
+				latestvers = result.info.version.split(".");
 
-				document.getElementById("latestversion").innerHTML = latestvers.join(".");
-				document.getElementById("currentversion").innerHTML = thisvers.join(".");
+				neo.xhttprequest("/apis/mlj_1/serverinfo",{},"GET",json=true).then((response)=>{
 
-				if (versioncompare(latestvers,thisvers) <= 0) {
-					document.getElementById("currentversion").style.color = "green";
-				}
-				else {
-					document.getElementById("currentversion").style.color = "red";
-					document.getElementById("updatestatus").innerHTML = "Consider updating to take advantage of new features";
-				}
+					result = JSON.parse(response.responseText);
+					thisvers = result.version;
+
+					document.getElementById("latestversion").innerHTML = latestvers.join(".");
+					document.getElementById("currentversion").innerHTML = thisvers.join(".");
+
+					if (versioncompare(latestvers,thisvers) <= 0) {
+						document.getElementById("currentversion").style.color = "green";
+					}
+					else {
+						document.getElementById("currentversion").style.color = "red";
+						document.getElementById("updatestatus").innerHTML = "Consider updating to take advantage of new features";
+					}
+				});
 			});
 		});
 
