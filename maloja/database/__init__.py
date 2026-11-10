@@ -789,8 +789,8 @@ def artist_info(dbconn=None,**keys):
 
 	else:
 		replaceartist = parent_artists[0]
-		c = [e for e in alltimecharts if e["artist"] == replaceartist][0]
-		position = c["rank"]
+		c = next((e for e in alltimecharts if e["artist"] == replaceartist), None)
+		position = c["rank"] if c else None
 		result.update({
 			"replace":replaceartist,
 			"position":position
@@ -813,9 +813,9 @@ def track_info(dbconn=None,**keys):
 	alltimecharts = get_charts_tracks(timerange=alltime(),resolve_ids=False,dbconn=dbconn)
 	#scrobbles = get_scrobbles_num(track=track,timerange=alltime())
 
-	c = [e for e in alltimecharts if e["track_id"] == track_id][0]
-	scrobbles = c["scrobbles"]
-	position = c["rank"]
+	c = next((e for e in alltimecharts if e["track_id"] == track_id), None)
+	scrobbles = c["scrobbles"] if c else 0
+	position = c["rank"] if c else None
 	cert = None
 	threshold_gold, threshold_platinum, threshold_diamond = malojaconfig["SCROBBLES_GOLD","SCROBBLES_PLATINUM","SCROBBLES_DIAMOND"]
 	if scrobbles >= threshold_diamond: cert = "diamond"
@@ -871,9 +871,9 @@ def album_info(dbconn=None,reduced=False,**keys):
 		scrobbles = get_scrobbles_num(album=album,timerange=alltime())
 	else:
 		alltimecharts = get_charts_albums(timerange=alltime(),dbconn=dbconn)
-		c = [e for e in alltimecharts if e["album"] == album][0]
-		scrobbles = c["scrobbles"]
-		position = c["rank"]
+		c = next((e for e in alltimecharts if e["album"] == album), None)
+		scrobbles = c["scrobbles"] if c else 0
+		position = c["rank"] if c else None
 		extrainfo['position'] = position
 
 	cert = None
