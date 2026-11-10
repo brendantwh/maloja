@@ -1014,7 +1014,7 @@ def associate_tracks_to_album(target_id,source_ids):
 	if result:
 		return {
 			"status":"success",
-			"desc":f"{', '.join(src['title'] for src in result['sources'])} were " + f"added to {result['target']['albumtitle']}" if target_id else "removed from their album"
+			"desc":f"{', '.join(src['title'] for src in result['sources'])} were " + (f"added to {result['target']['albumtitle']}" if target_id else "removed from their album")
 		}
 
 

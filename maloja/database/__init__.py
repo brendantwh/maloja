@@ -336,6 +336,8 @@ def associate_tracks_to_album(target_id,source_ids):
 		log(f"Adding {sources} into {target}")
 		sqldb.add_tracks_to_albums({src:target_id for src in source_ids},replace=True)
 	else:
+		target = None
+		log(f"Removing {sources} from their album")
 		sqldb.remove_album(source_ids)
 	result = {'sources':sources,'target':target}
 	dbcache.invalidate_entity_cache()
