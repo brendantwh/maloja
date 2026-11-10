@@ -14,7 +14,6 @@ import random
 import base64
 import requests
 import datauri
-import io
 from threading import Lock
 from concurrent.futures import ThreadPoolExecutor
 import re
@@ -147,15 +146,41 @@ def remove_image_from_cache(track_id=None,artist_id=None,album_id=None):
 				pass
 
 
+MAX_IMAGE_REDIRECTS = 5
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+REDIRECT_CODES = (301, 302, 303, 307, 308)
+
 def dl_image(url):
-	if not validate_safe_url(url):
-		log(f"Blocked SSRF attempt: {url}")
-		return None
 	try:
-		r = requests.get(url, timeout=thirdparty.REQUEST_TIMEOUT)
-		mime = r.headers.get('content-type') or 'image/jpg'
-		data = io.BytesIO(r.content).read()
-		#uri = datauri.DataURI.make(mime,charset='ascii',base64=True,data=data)
+		# follow redirects manually so every hop goes through the same safety check
+		# (e.g. coverartarchive.org legitimately redirects to archive.org)
+		for _ in range(MAX_IMAGE_REDIRECTS + 1):
+			if not validate_safe_url(url):
+				log(f"Blocked SSRF attempt: {url}")
+				return None
+			r = requests.get(url, timeout=thirdparty.REQUEST_TIMEOUT, allow_redirects=False, stream=True)
+			if r.status_code in REDIRECT_CODES and r.headers.get('location'):
+				url = urllib.parse.urljoin(url, r.headers['location'])
+				r.close()
+				continue
+			break
+		else:
+			log(f"Image {url} could not be downloaded for local caching: too many redirects")
+			return None
+
+		with r:
+			mime = r.headers.get('content-type') or ''
+			if not r.ok or not mime.startswith('image/'):
+				log(f"Image {url} could not be downloaded for local caching: status {r.status_code}, type '{mime}'")
+				return None
+
+			data = bytearray()
+			for chunk in r.iter_content(chunk_size=64 * 1024):
+				data.extend(chunk)
+				if len(data) > MAX_IMAGE_BYTES:
+					log(f"Image {url} could not be downloaded for local caching: larger than {MAX_IMAGE_BYTES} bytes")
+					return None
+
 		targetname = '%030x' % random.getrandbits(128)
 		targetpath = data_dir['cache']('images',targetname)
 		with open(targetpath,'wb') as fd:
@@ -168,14 +193,21 @@ def dl_image(url):
 def validate_safe_url(url):
 	#extra check in addition to the 3rd party fetch checks
 	parsed = urllib.parse.urlparse(url)
-	if parsed.scheme not in ("http", "https"):
+	if parsed.scheme not in ("http", "https") or not parsed.hostname:
 		return False
 	try:
-		ip_str = socket.gethostbyname(parsed.hostname)
-		ip = ipaddress.ip_address(ip_str)
-		if ip.is_private or ip.is_loopback or ip.is_link_local:
+		# check every address the host resolves to (IPv4 and IPv6), not just the first
+		addresses = {info[4][0] for info in socket.getaddrinfo(parsed.hostname, parsed.port or None)}
+		if not addresses:
 			return False
-	except (socket.gaierror, ValueError):
+		for address in addresses:
+			ip = ipaddress.ip_address(address.split('%')[0]) # strip IPv6 zone ids
+			if ip.version == 6 and ip.ipv4_mapped:
+				ip = ip.ipv4_mapped
+			if (not ip.is_global or ip.is_private or ip.is_loopback or ip.is_link_local
+					or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+				return False
+	except (socket.gaierror, ValueError, UnicodeError):
 		return False
 	return True
 
