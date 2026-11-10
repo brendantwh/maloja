@@ -80,6 +80,13 @@ def get_id_and_table(track_id=None,artist_id=None,album_id=None):
 	elif artist_id:
 		return artist_id,'artists'
 
+# in-memory record of which images have a valid cache entry: (table, id) -> expire timestamp
+known_cached = {}
+
+def is_known_cached(table,entity_id):
+	expire = known_cached.get((table,entity_id))
+	return expire is not None and expire > int(datetime.datetime.now().timestamp())
+
 def get_image_from_cache(track_id=None,artist_id=None,album_id=None):
 	now = int(datetime.datetime.now().timestamp())
 	entity_id, table = get_id_and_table(track_id=track_id,artist_id=artist_id,album_id=album_id)
@@ -91,6 +98,7 @@ def get_image_from_cache(track_id=None,artist_id=None,album_id=None):
 		)
 		result = conn.execute(op).all()
 	for row in result:
+		known_cached[(table,entity_id)] = row.expire
 		if row.local:
 			return {'type':'localurl','value':row.url}
 		elif row.localproxyurl:
@@ -129,11 +137,13 @@ def set_image_in_cache(url,track_id=None,artist_id=None,album_id=None,local=Fals
 				localproxyurl=localproxyurl
 			)
 			result = conn.execute(op)
+		known_cached[(table,entity_id)] = expire
 
 def remove_image_from_cache(track_id=None,artist_id=None,album_id=None):
 	entity_id, table = get_id_and_table(track_id=track_id,artist_id=artist_id,album_id=album_id)
 
 	with dblock:
+		known_cached.pop((table,entity_id),None)
 		with engine.begin() as conn:
 			op = DB[table].delete().where(
 				DB[table].c.id==entity_id,
@@ -232,7 +242,7 @@ def get_track_image(track=None,track_id=None):
 			album_id = database.sqldb.get_album_id(track["album"])
 			return get_album_image(album_id=album_id)
 
-	resolver.submit(resolve_image,track_id=track_id)
+	queue_resolve(track_id=track_id)
 
 	return f"/image?track_id={track_id}"
 
@@ -240,7 +250,7 @@ def get_artist_image(artist=None,artist_id=None):
 	if artist_id is None:
 		artist_id = database.sqldb.get_artist_id(artist,create_new=False)
 
-	resolver.submit(resolve_image,artist_id=artist_id)
+	queue_resolve(artist_id=artist_id)
 
 	return f"/image?artist_id={artist_id}"
 
@@ -248,9 +258,16 @@ def get_album_image(album=None,album_id=None):
 	if album_id is None:
 		album_id = database.sqldb.get_album_id(album,create_new=False)
 
-	resolver.submit(resolve_image,album_id=album_id)
+	queue_resolve(album_id=album_id)
 
 	return f"/image?album_id={album_id}"
+
+# pages call the get_*_image functions for every image they show, so skip queueing a resolve job
+# (and the database lookup it starts with) for images we already know are cached
+def queue_resolve(**ids):
+	entity_id, table = get_id_and_table(**ids)
+	if not is_known_cached(table,entity_id):
+		resolver.submit(resolve_image,**ids)
 
 
 # this is to keep track of what is currently being resolved
