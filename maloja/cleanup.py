@@ -116,9 +116,10 @@ class CleanerAgent:
 
 
 		for d in self.delimiters_feat:
-			if re.match(r"(.*) [\(\[]" + d + " (.*)[\)\]]",a,flags=re.IGNORECASE) is not None:
-				return self.parseArtists(re.sub(r"(.*) [\(\[]" + d + " (.*)[\)\]]",r"\1",a,flags=re.IGNORECASE)) + \
-						self.parseArtists(re.sub(r"(.*) [\(\[]" + d + " (.*)[\)\]]",r"\2",a,flags=re.IGNORECASE))
+			match = re.match(r"(.*) [\(\[]" + re.escape(d) + r" (.*)[\)\]]",a,flags=re.IGNORECASE)
+			if match is not None:
+				rest = a[match.end():]
+				return self.parseArtists(match.group(1) + rest) + self.parseArtists(match.group(2) + rest)
 
 
 
@@ -167,9 +168,9 @@ class CleanerAgent:
 		artists = []
 		for delimiter in malojaconfig["DELIMITERS_FEAT"]:
 			for pattern in [
-				r" [\(\[]" + re.escape(delimiter) + " (.*?)[\)\]]",
-				r" - " + re.escape(delimiter) + " (.*)",
-				r" " + re.escape(delimiter) + " (.*)"
+				r" [\(\[]" + re.escape(delimiter) + r" (.*?)[\)\]]",
+				r" - " + re.escape(delimiter) + r" (.*)",
+				r" " + re.escape(delimiter) + r" (.*)"
 			]:
 				matches = re.finditer(pattern,title,flags=re.IGNORECASE)
 				for match in matches:
@@ -181,7 +182,7 @@ class CleanerAgent:
 		if malojaconfig["PARSE_REMIX_ARTISTS"]:
 			for filter in malojaconfig["FILTERS_REMIX"]:
 				for pattern in [
-					r" [\(\[](.*)" + re.escape(filter) + "[\)\]]", # match remix in brackets
+					r" [\(\[](.*)" + re.escape(filter) + r"[\)\]]", # match remix in brackets
 					r" - (.*)" + re.escape(filter) # match remix split with "-"
 				]:
 					match = re.search(pattern,title,flags=re.IGNORECASE)

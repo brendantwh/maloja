@@ -1,4 +1,8 @@
+import warnings
+
 import pytest
+
+from maloja import cleanup
 
 
 def phase2(reason):
@@ -23,6 +27,7 @@ PARSER_CASES = [
 	pytest.param("A", "Song - Mono", ["A"], "Song", id="mono-dash", marks=phase2("dash mono suffix")),
 	pytest.param("Nirvana", "Come As You Are - Live", ["Nirvana"], "Come As You Are - Live", id="live-kept"),
 	pytest.param("A", "Song (X Remix)", ["A"], "Song (X Remix)", id="remix-kept"),
+	pytest.param("A (ftX B)", "Song", ["A (ftX B)"], "Song", id="artist-delimiter-escaped"),
 ]
 
 
@@ -62,3 +67,11 @@ RULES_CASES = [
 def test_rules(agent_with_rules, rules, artists_in, title_in, artists_out, title_out):
 	artists, title, _ = agent_with_rules(*rules).fullclean(artists_in, title_in, None)
 	assert (artists, title) == (artists_out, title_out)
+
+
+def test_cleanup_compiles_without_warnings():
+	with open(cleanup.__file__) as f:
+		source = f.read()
+	with warnings.catch_warnings():
+		warnings.simplefilter("error")
+		compile(source, cleanup.__file__, "exec")
