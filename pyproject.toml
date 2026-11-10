@@ -32,13 +32,13 @@ dependencies = [
 	"python-magic==0.4.*",
 	"requests==2.32.*",
 	"toml==0.10.*",
-	"PyYAML==6.0.*"
+	"PyYAML==6.0.*",
+	"pillow==13.*"
 ]
 
 [project.optional-dependencies]
-full = [
-	"pyvips==2.2.*"
-]
+# kept so existing 'malojaserver[full]' installs still resolve; thumbnails now use pillow
+full = []
 
 [project.scripts]
 maloja = "maloja.__main__:main"
@@ -68,9 +68,7 @@ run = [
 	"tzdata",
 	"libmagic"
 ]
-opt = [
-	"vips"
-]
+opt = []
 
 [tool.osreqs.debian]
 build = [

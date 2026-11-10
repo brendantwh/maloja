@@ -4,6 +4,7 @@ from threading import Thread
 from importlib import resources
 import time
 from magic import from_file
+from PIL import Image, ImageOps
 
 
 # server stuff
@@ -134,6 +135,19 @@ def dynamic_image():
 		response.set_header('Cache-Control','public, max-age=3600')
 		redirect(result['value'],307)
 
+THUMBNAIL_SIZE = 300
+
+def make_thumbnail(source,target):
+	with Image.open(source) as img:
+		img = ImageOps.exif_transpose(img) # phone photos store their rotation separately
+		img.thumbnail((THUMBNAIL_SIZE,THUMBNAIL_SIZE)) # keeps the aspect ratio, never enlarges
+		if img.mode not in ("RGB","RGBA"):
+			img = img.convert("RGBA" if "transparency" in img.info or img.mode in ("LA","PA") else "RGB")
+		# write to a temporary name first so a half-written file is never served
+		tmp = target + ".tmp"
+		img.save(tmp,"WEBP",quality=85)
+		os.replace(tmp,target)
+
 @webserver.route("/images/<pth:re:.*\\.jpeg>")
 @webserver.route("/images/<pth:re:.*\\.jpg>")
 @webserver.route("/images/<pth:re:.*\\.png>")
@@ -150,9 +164,7 @@ def static_image(pth):
 		resp = static_file(small_pth,root=data_dir['images'](),mimetype=thumbnail_mimetype)
 	else:
 		try:
-			from pyvips import Image
-			thumb = Image.thumbnail(data_dir['images'](pth),300)
-			thumb.webpsave(data_dir['images'](small_pth))
+			make_thumbnail(data_dir['images'](pth),data_dir['images'](small_pth))
 			resp = static_file(small_pth,root=data_dir['images'](),mimetype=thumbnail_mimetype)
 		except Exception:
 			resp = static_file(pth,root=data_dir['images'](),mimetype=original_mimetype)
