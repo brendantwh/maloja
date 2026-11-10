@@ -9,6 +9,7 @@ from datetime import datetime
 from threading import Lock
 
 from ..pkg_global.conf import data_dir
+from ..malojatime import register_scrobbletime
 from .dbcache import cached_wrapper, cached_wrapper_individual, invalidate_caches, invalidate_entity_cache
 from . import exceptions as exc
 from . import no_aux_mode
@@ -377,6 +378,7 @@ def add_scrobbles(scrobbleslist: list[ScrobbleDict], update_album=False, dbconn=
 	#	]
 
 		success, exists, errors = 0, 0, 0
+		written_timestamps = []
 
 		for s in scrobbleslist:
 			scrobble_entry = scrobble_dict_to_db(s, update_album=update_album, dbconn=dbconn)
@@ -385,6 +387,7 @@ def add_scrobbles(scrobbleslist: list[ScrobbleDict], update_album=False, dbconn=
 					**scrobble_entry
 				))
 				success += 1
+				written_timestamps.append(scrobble_entry['timestamp'])
 			except sql.exc.IntegrityError:
 				# get existing scrobble
 				result = dbconn.execute(DB['scrobbles'].select().where(
@@ -394,6 +397,11 @@ def add_scrobbles(scrobbleslist: list[ScrobbleDict], update_album=False, dbconn=
 					exists += 1
 				else:
 					errors += 1
+
+	# backdated scrobbles can be older than anything we had at startup, and the
+	# default 'all time' range starts at the earliest known scrobble
+	if written_timestamps:
+		register_scrobbletime(min(written_timestamps))
 
 	if errors > 0: log(f"{errors} Scrobbles have not been written to database (duplicate timestamps)!", color='red')
 	if exists > 0: log(f"{exists} Scrobbles have not been written to database (already exist)", color='orange')
