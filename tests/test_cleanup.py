@@ -20,7 +20,8 @@ PARSER_CASES = [
 	pytest.param("Lady Gaga, Bradley Cooper", "Shallow", ["Lady Gaga, Bradley Cooper"], "Shallow", id="char-comma"),
 	pytest.param("B & A", "Song", ["A", "B"], "Song", id="char-alphabetical-order"),
 	pytest.param("Daft Punk", "Get Lucky (feat. Pharrell Williams)", ["Daft Punk", "Pharrell Williams"], "Get Lucky (feat. Pharrell Williams)", id="title-feat-kept"),
-	pytest.param("Calvin Harris", "One Kiss (with Dua Lipa)", ["Calvin Harris", "Dua Lipa"], "One Kiss (with Dua Lipa)", id="title-with", marks=phase2("'with' as a featuring delimiter")),
+	pytest.param("Calvin Harris", "One Kiss (with Dua Lipa)", ["Calvin Harris", "Dua Lipa"], "One Kiss (with Dua Lipa)", id="title-with"),
+	pytest.param("A", "Dancing with Myself", ["A"], "Dancing with Myself", id="title-with-bare-kept"),
 	pytest.param("A", "Song (2011 Remaster)", ["A"], "Song", id="remaster-bracket"),
 	pytest.param("The Beatles", "Let It Be - Remastered 2009", ["The Beatles"], "Let It Be", id="remaster-dash", marks=phase2("dash remaster suffix")),
 	pytest.param("A", "Song - Radio Edit", ["A"], "Song", id="radio-edit-dash", marks=phase2("dash radio edit suffix")),
@@ -36,6 +37,19 @@ PARSER_CASES = [
 
 @pytest.mark.parametrize("artists_in,title_in,artists_out,title_out", PARSER_CASES)
 def test_parser(agent, artists_in, title_in, artists_out, title_out):
+	artists, title, _ = agent.fullclean(artists_in, title_in, None)
+	assert (artists, title) == (artists_out, title_out)
+
+
+# each behaviour change can be switched off (or on) with its own setting
+SETTINGS_CASES = [
+	pytest.param({"DELIMITERS_FEAT_TITLE": []}, "Calvin Harris", "One Kiss (with Dua Lipa)", ["Calvin Harris"], "One Kiss (with Dua Lipa)", id="title-with-off"),
+]
+
+
+@pytest.mark.parametrize("values,artists_in,title_in,artists_out,title_out", SETTINGS_CASES)
+def test_parser_settings(agent, settings, values, artists_in, title_in, artists_out, title_out):
+	settings(**values)
 	artists, title, _ = agent.fullclean(artists_in, title_in, None)
 	assert (artists, title) == (artists_out, title_out)
 
