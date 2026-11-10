@@ -169,6 +169,7 @@ class CleanerAgent:
 	# (live versions and remixes are deliberately not here, they stay separate tracks)
 	title_variants = [
 		("TITLE_MERGE_REMASTERS", r".*\bremaster(ed)?\b.*"),
+		("TITLE_MERGE_EDITS", r"(\d{4} )?(radio|single) (edit|version)"),
 	]
 
 	def stripVariants(self,t):

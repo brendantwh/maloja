@@ -26,7 +26,8 @@ PARSER_CASES = [
 	pytest.param("The Beatles", "Let It Be - Remastered 2009", ["The Beatles"], "Let It Be", id="remaster-dash"),
 	pytest.param("A", "Song - 2011 Remaster", ["A"], "Song", id="remaster-dash-year-first"),
 	pytest.param("Queen", "Bohemian Rhapsody - Live Aid / Remastered", ["Queen"], "Bohemian Rhapsody - Live Aid", id="live-remaster-combined"),
-	pytest.param("A", "Song - Radio Edit", ["A"], "Song", id="radio-edit-dash", marks=phase2("dash radio edit suffix")),
+	pytest.param("A", "Song - Radio Edit", ["A"], "Song", id="radio-edit-dash"),
+	pytest.param("A", "Song (Single Version)", ["A"], "Song", id="single-version"),
 	pytest.param("A", "Song - Mono", ["A"], "Song", id="mono-dash", marks=phase2("dash mono suffix")),
 	pytest.param("Nirvana", "Come As You Are - Live", ["Nirvana"], "Come As You Are - Live", id="live-kept"),
 	pytest.param("A", "Song (X Remix)", ["A"], "Song (X Remix)", id="remix-kept"),
@@ -47,6 +48,7 @@ def test_parser(agent, artists_in, title_in, artists_out, title_out):
 SETTINGS_CASES = [
 	pytest.param({"DELIMITERS_FEAT_TITLE": []}, "Calvin Harris", "One Kiss (with Dua Lipa)", ["Calvin Harris"], "One Kiss (with Dua Lipa)", id="title-with-off"),
 	pytest.param({"TITLE_MERGE_REMASTERS": False}, "A", "Song - Remastered 2009 (2011 Remaster)", ["A"], "Song - Remastered 2009 (2011 Remaster)", id="remasters-off"),
+	pytest.param({"TITLE_MERGE_EDITS": False}, "A", "Song - Single Edit", ["A"], "Song - Single Edit", id="edits-off"),
 ]
 
 
