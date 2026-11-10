@@ -4,20 +4,20 @@ def fixlength(real,target):
 	return t
 
 def find_representative(sequence,attribute_id,attribute_count):
+	# the elements may be shared cached results, so don't modify them
+	# values can be unhashable dicts (tracks, albums), so count by equality
 	try:
 		newsequence = [e for e in sequence if e is not None and e[attribute_id] is not None]
-		for element in newsequence:
-			element["_j_appears"] = [e[attribute_id] for e in newsequence].count(element[attribute_id])
+		values = [e[attribute_id] for e in newsequence]
+		appearances = [values.count(v) for v in values]
 
-		newsequence = [e for e in newsequence if e["_j_appears"] == max(el["_j_appears"] for el in newsequence)]
+		most_appearances = max(appearances)
+		newsequence = [e for e, a in zip(newsequence, appearances) if a == most_appearances]
 
 		newsequence = [e for e in newsequence if e[attribute_count] == max(el[attribute_count] for el in newsequence)]
 		return newsequence[0]
 	except Exception:
 		return None
-	finally:
-		for e in newsequence:
-			del e["_j_appears"]
 
 
 #	groups = []
