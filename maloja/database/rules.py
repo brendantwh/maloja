@@ -13,7 +13,7 @@ from threading import RLock
 import sqlalchemy as sql
 from doreah.logging import log
 
-from ..cleanup import RULE_COLUMNS, SCOPABLE, Rule, parse_rules_tsv
+from ..cleanup import RULE_COLUMNS, SCOPABLE, SCOPE_PREFIX, Rule, parse_rules_tsv
 from ..pkg_global.conf import data_dir
 from . import sqldb
 from .sqldb import DB
@@ -34,6 +34,8 @@ def make_rule(ruletype, fields, scope=None):
 	if len(fields) != RULE_COLUMNS[ruletype] or not all(fields):
 		raise RuleError(f"{ruletype} needs {RULE_COLUMNS[ruletype]} non-empty fields")
 	scope = (scope or '').strip() or None
+	if any(c in value for value in (*fields, scope or '') for c in "\t\n\r"):
+		raise RuleError("Rules can't contain tabs or line breaks")
 	if scope and ruletype not in SCOPABLE:
 		raise RuleError(f"{ruletype} can't be limited to an artist")
 	return Rule(ruletype, fields, scope)
@@ -200,6 +202,54 @@ def add_rule(ruletype, fields, scope=None, note=None, origin='user', enabled=Tru
 	return result.inserted_primary_key[0] if result.rowcount else None
 
 
+def _get_row(rule_id, dbconn):
+	row = dbconn.execute(sql.select(DB['rules']).where(DB['rules'].c.id == int(rule_id))).first()
+	if row is None:
+		raise RuleError(f"There is no rule {rule_id}")
+	return row
+
+
+@sqldb.connection_provider
+def edit_rule(rule_id, ruletype, fields, scope=None, note=None, dbconn=None):
+	_get_row(rule_id, dbconn)
+	rule = make_rule(ruletype, fields, scope)
+	values = {'type': rule.type, 'fields': json.dumps(list(rule.fields), ensure_ascii=False), 'scope': rule.scope or ''}
+	if note is not None:
+		values['note'] = note
+	try:
+		dbconn.execute(DB['rules'].update().where(DB['rules'].c.id == int(rule_id)).values(**values))
+	except sql.exc.IntegrityError:
+		raise RuleError("The same rule already exists")
+
+
+@sqldb.connection_provider
+def delete_rule(rule_id, dbconn=None):
+	_get_row(rule_id, dbconn)
+	dbconn.execute(DB['rules'].delete().where(DB['rules'].c.id == int(rule_id)))
+
+
+@sqldb.connection_provider
+def set_rule_enabled(rule_id, enabled, dbconn=None):
+	_get_row(rule_id, dbconn)
+	dbconn.execute(DB['rules'].update().where(DB['rules'].c.id == int(rule_id)).values(enabled=bool(enabled)))
+
+
+@sqldb.connection_provider
+def list_rules(dbconn=None):
+	"""Your rules, including switched off ones."""
+	rows = dbconn.execute(sql.select(DB['rules']).order_by(DB['rules'].c.id))
+	return [
+		{**rule_to_dict(_row_to_rule(row)), 'enabled': bool(row.enabled), 'note': row.note or '', 'created_at': row.created_at}
+		for row in rows
+	]
+
+
+def rule_to_dict(rule):
+	return {'id': rule.id, 'type': rule.type, 'fields': list(rule.fields), 'scope': rule.scope, 'source': rule.source, 'key': rule_key(rule)}
+
+
+# predefined sets
+
 @sqldb.connection_provider
 def get_ruleset_states(dbconn=None):
 	return {row.name: bool(row.enabled) for row in dbconn.execute(sql.select(DB['rulesets']))}
@@ -211,3 +261,77 @@ def set_ruleset_enabled(name, enabled, dbconn=None):
 		raise RuleError(f"Invalid rule set name {name!r}")
 	op = sqldb.sqliteinsert(DB['rulesets']).values(name=name, enabled=enabled)
 	dbconn.execute(op.on_conflict_do_update(index_elements=['name'], set_={'enabled': enabled}))
+
+
+def _set_rule(name, key):
+	for rule in read_ruleset(name):
+		if rule_key(rule) == key:
+			return rule
+	raise RuleError(f"Rule set {name} has no such rule")
+
+
+@sqldb.connection_provider
+def set_ruleset_rule_enabled(name, key, enabled, dbconn=None):
+	_set_rule(name, key)
+	table = DB['ruleset_overrides']
+	if enabled:
+		dbconn.execute(table.delete().where(table.c.ruleset == name, table.c.rule_key == key))
+	else:
+		dbconn.execute(table.insert().values(ruleset=name, rule_key=key).prefix_with('OR IGNORE'))
+
+
+@sqldb.connection_provider
+def copy_ruleset_rule(name, key, dbconn=None):
+	"""Copy a rule of a set into your rules, where you can change it (yours wins on the same match)."""
+	rule = _set_rule(name, key)
+	return add_rule(rule.type, rule.fields, rule.scope, note=f"copied from {name}", dbconn=dbconn)
+
+
+@sqldb.connection_provider
+def list_rulesets(dbconn=None):
+	"""The predefined sets, whether they're on, and their rules with the ones you switched off."""
+	states = get_ruleset_states(dbconn=dbconn)
+	pending = {name for kind, name, _ in pending_files() if kind == 'set'}
+	overrides = {(row.ruleset, row.rule_key) for row in dbconn.execute(sql.select(DB['ruleset_overrides']))}
+	return [
+		{
+			**ruleset,
+			'active': states.get(ruleset['file'], False) or ruleset['file'] in pending,
+			'rules': [
+				{**rule_to_dict(rule), 'enabled': (ruleset['file'], rule_key(rule)) not in overrides}
+				for rule in read_ruleset(ruleset['file'])
+			],
+		}
+		for ruleset in list_ruleset_files()
+	]
+
+
+# rule files
+
+def rule_to_tsv(rule):
+	columns = [rule.type, *rule.fields] + ([SCOPE_PREFIX + rule.scope] if rule.scope else [])
+	return "\t".join(columns)
+
+
+@sqldb.connection_provider
+def export_tsv(dbconn=None):
+	lines = ["# Maloja parser rules, exported " + time.strftime("%Y-%m-%d %H:%M"), "# see rules.info for the format", ""]
+	for rule in list_rules(dbconn=dbconn):
+		line = rule_to_tsv(Rule(rule['type'], tuple(rule['fields']), rule['scope']))
+		lines.append(line if rule['enabled'] else "# (switched off) " + line)
+	return "\n".join(lines) + "\n"
+
+
+@sqldb.connection_provider
+def import_tsv(text, origin='import', dbconn=None):
+	rules, errors = parse_rules_tsv(text)
+	added, existing = 0, 0
+	for rule in rules:
+		try:
+			if add_rule(rule.type, rule.fields, rule.scope, origin=origin, dbconn=dbconn):
+				added += 1
+			else:
+				existing += 1
+		except RuleError as e:
+			errors.append(f"{rule_to_tsv(rule)!r}: {e}")
+	return {'added': added, 'existing': existing, 'errors': errors}
