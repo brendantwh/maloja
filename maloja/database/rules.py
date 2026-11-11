@@ -322,6 +322,33 @@ def list_rulesets(dbconn=None):
 	]
 
 
+# maloja export / import
+
+@sqldb.connection_provider
+def export_data(dbconn=None):
+	return {
+		'rules': [{k: r[k] for k in ('type', 'fields', 'scope', 'enabled', 'note')} for r in list_rules(dbconn=dbconn)],
+		'rulesets': get_ruleset_states(dbconn=dbconn),
+		'overrides': [[row.ruleset, row.rule_key] for row in dbconn.execute(sql.select(DB['ruleset_overrides']))],
+	}
+
+
+@sqldb.connection_provider
+def import_data(data, dbconn=None):
+	added, errors = 0, []
+	for r in data.get('rules', []):
+		try:
+			added += bool(add_rule(r['type'], r['fields'], r.get('scope'), note=r.get('note'), origin='import', enabled=r.get('enabled', True), dbconn=dbconn))
+		except (RuleError, KeyError, TypeError) as e:
+			errors.append(f"{r!r}: {e}")
+	for name, enabled in data.get('rulesets', {}).items():
+		if valid_set_name(name):
+			set_ruleset_enabled(name, enabled, dbconn=dbconn)
+	for name, key in data.get('overrides', []):
+		dbconn.execute(DB['ruleset_overrides'].insert().values(ruleset=name, rule_key=key).prefix_with('OR IGNORE'))
+	return {'added': added, 'errors': errors}
+
+
 # rule files
 
 def rule_to_tsv(rule):
