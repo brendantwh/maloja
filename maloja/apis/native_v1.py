@@ -14,6 +14,7 @@ from nimrodel import Multi
 
 
 from .. import database
+from ..database import reparse
 from ..pkg_global.conf import malojaconfig, data_dir, auth
 
 
@@ -113,6 +114,14 @@ errors = {
 		"status":"failure",
 		"error":{
 			'type':'invalid_rule',
+			'value':None,
+			'desc':str(e)
+		}
+	}),
+	reparse.JobRunning: lambda e: (409,{
+		"status":"failure",
+		"error":{
+			'type':'job_running',
 			'value':None,
 			'desc':str(e)
 		}
@@ -1050,6 +1059,32 @@ def edit_album(id,albumtitle):
 	return {
 		"status":"success"
 	}
+
+
+@api.post("reparse_preview")
+@auth.authenticated_function(api=True)
+@catch_exceptions
+def reparse_preview(**keys):
+	"""Internal Use Only"""
+	reparse.start_preview()
+	return {"status":"success","desc":"Working out what a reparse would change..."}
+
+
+@api.get("reparse_status")
+@auth.authenticated_function(api=True)
+@catch_exceptions
+def reparse_status(report=False,**keys):
+	"""Internal Use Only"""
+	return reparse.job_status(include_report=report not in (False,'','no','false'))
+
+
+@api.post("reparse_apply")
+@auth.authenticated_function(api=True)
+@catch_exceptions
+def reparse_apply(skip_track_ids=[],reorder=False):
+	"""Internal Use Only"""
+	reparse.start_apply(skip_track_ids,reorder)
+	return {"status":"success","desc":"Reparse started, a snapshot of the database is saved first."}
 
 
 @api.get("aliases")

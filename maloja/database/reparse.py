@@ -10,6 +10,7 @@ import json
 import os
 import time
 from collections import Counter, defaultdict
+from threading import Lock, Thread
 
 import sqlalchemy as sql
 from doreah.logging import log
@@ -120,3 +121,60 @@ def apply_reparse(skip_track_ids=(), reorder=False, progress=None, batch_size=50
 	result = {'snapshot': snapshot, **{k: counts[k] for k in ('total', 'moved', 'unchanged', 'reordered', 'skipped', 'no_raw', 'discarded', 'errors')}}
 	log(f"Reparse done: {result}")
 	return result
+
+
+# one background job at a time for the web interface, the server keeps running meanwhile
+
+class JobRunning(Exception):
+	pass
+
+
+_job_lock = Lock()
+_job = {'state': 'idle'}
+_thread = None
+
+
+def job_status(include_report=False):
+	with _job_lock:
+		status = {k: v for k, v in _job.items() if include_report or k != 'report'}
+	return status
+
+
+def _start(state, work, **info):
+	global _thread
+	with _job_lock:
+		if _job['state'] in ('previewing', 'applying'):
+			raise JobRunning(f"A reparse job is already running ({_job['state']})")
+		_job.clear()
+		_job.update(state=state, started=int(time.time()), progress=[0, 0], **info)
+
+	def run():
+		try:
+			done = work()
+			with _job_lock:
+				_job.update(done, finished=int(time.time()))
+		except Exception as e:
+			log(f"Reparse job failed: {e!r}", color='red')
+			with _job_lock:
+				_job.update(state='error', error=repr(e), finished=int(time.time()))
+
+	_thread = Thread(target=run, daemon=True)
+	_thread.start()
+
+
+def start_preview():
+	from .reparse_report import build_report
+	_start('previewing', lambda: {'state': 'ready', 'report': build_report(examples=None)})
+
+
+def start_apply(skip_track_ids=(), reorder=False):
+	def progress(done, total):
+		with _job_lock:
+			_job['progress'] = [done, total]
+	_start('applying', lambda: {'state': 'done', 'result': apply_reparse(skip_track_ids, reorder, progress=progress)},
+		skip_track_ids=sorted({int(t) for t in skip_track_ids}), reorder=bool(reorder))
+
+
+def wait_for_job(timeout=None):
+	if _thread:
+		_thread.join(timeout)
