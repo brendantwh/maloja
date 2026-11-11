@@ -758,15 +758,9 @@ def import_rulemodule(**keys):
 	"""Internal Use Only"""
 	filename = keys.get("filename")
 	remove = keys.get("remove") is not None
-	validchars = "-_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	filename = "".join(c for c in filename if c in validchars)
-
-	if remove:
-		log("Deactivating predefined rulefile " + filename)
-		os.remove(data_dir['rules'](filename + ".tsv"))
-	else:
-		log("Importing predefined rulefile " + filename)
-		os.symlink(data_dir['rules']("predefined/" + filename + ".tsv"),data_dir['rules'](filename + ".tsv"))
+	from ..database import rules
+	log(("Deactivating" if remove else "Activating") + " predefined rule set " + filename)
+	rules.set_ruleset_enabled(filename, not remove)
 
 
 

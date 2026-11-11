@@ -33,7 +33,7 @@ def settings(monkeypatch):
 def _empty_db(monkeypatch):
 	# all tests share one data directory, so each database test starts from an empty one
 	from maloja import database
-	from maloja.database import dbcache, sqldb
+	from maloja.database import dbcache, rules, sqldb
 	from maloja.pkg_global import conf
 
 	# in AUX_MODE cache invalidation is a no-op, so cached ids would leak between tests
@@ -45,6 +45,8 @@ def _empty_db(monkeypatch):
 	dbcache.invalidate_entity_cache()
 	dbcache.invalidate_caches()
 	sqldb.forget_known_artists()
+	# a fresh parser, so rules loaded by an earlier test don't stick around
+	monkeypatch.setattr(database, "cla", CleanerAgent(rules_loader=rules.load_rules, known_artist=sqldb.is_known_artist))
 	return database
 
 

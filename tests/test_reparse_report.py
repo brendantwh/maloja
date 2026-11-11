@@ -1,13 +1,10 @@
-import os
-
 import pytest
 import sqlalchemy as sql
 
 from maloja import database
-from maloja.cleanup import CleanerAgent
+from maloja.cleanup import CleanerAgent, parse_rules_tsv
 from maloja.database import sqldb
 from maloja.database.reparse_report import build_report
-from maloja.pkg_global.conf import data_dir
 
 
 # each case: what an older parser or rule set stored, and the raw input it got
@@ -42,10 +39,8 @@ CASES = [
 @pytest.fixture(scope="module")
 def report(module_db):
 	_, mp = module_db
-	rulesfile = data_dir["rules"]("reparse_report_tests.tsv")
-	with open(rulesfile, "w") as f:
-		f.write("replaceartist\tZeta Old\tZeta\n")
-	mp.setattr(database, "cla", CleanerAgent(known_artist=sqldb.is_known_artist))
+	rules, _ = parse_rules_tsv("replaceartist\tZeta Old\tZeta\n")
+	mp.setattr(database, "cla", CleanerAgent(rules=rules, known_artist=sqldb.is_known_artist))
 	sqldb.add_scrobbles([
 		{
 			"time": 1000 + i,
@@ -57,8 +52,7 @@ def report(module_db):
 	])
 	sqldb.add_alias("artist", "Iota Old", sqldb.get_artist_id("Iota"))
 	sqldb.add_alias("track", "Anthem (feat. Lambda)", sqldb.get_track_id({"artists": ["Kappa"], "title": "Anthem"}), artists=["Kappa", "Lambda"])
-	yield build_report()
-	os.remove(rulesfile)
+	return build_report()
 
 
 def test_coverage(report):

@@ -130,6 +130,40 @@ DBTABLES = {
 		'extraargs':(
 			sql.UniqueConstraint('entity_type', 'name_normalized', 'artists_normalized'),
 		),'extrakwargs':{'sqlite_autoincrement':True}
+	},
+	# parser rules (see rules.py), the rule files are only imported into this
+	'rules':{
+		'columns':[
+			("id",                  sql.Integer,                                  {'primary_key':True}),
+			("type",                sql.String,                                   {}),
+			("fields",              sql.String,                                   {}), # json list of the columns after the type
+			("scope",               sql.String,                                   {}), # artist the rule is limited to, '' for all
+			("enabled",             sql.Boolean,                                  {}),
+			("origin",              sql.String,                                   {}), # user, file:<name> or import
+			("note",                sql.String,                                   {}),
+			("created_at",          sql.Integer,                                  {})
+		],
+		'extraargs':(
+			sql.UniqueConstraint('type', 'fields', 'scope'),
+		),'extrakwargs':{'sqlite_autoincrement':True}
+	},
+	# predefined rule sets that are switched on, their rules are read from the shipped files
+	'rulesets':{
+		'columns':[
+			("name",                sql.String,                                   {'primary_key':True}),
+			("enabled",             sql.Boolean,                                  {})
+		],
+		'extraargs':(),'extrakwargs':{}
+	},
+	# single rules of a predefined set that are switched off
+	'ruleset_overrides':{
+		'columns':[
+			("ruleset",             sql.String,                                   {}),
+			("rule_key",            sql.String,                                   {})
+		],
+		'extraargs':(
+			sql.UniqueConstraint('ruleset', 'rule_key'),
+		),'extrakwargs':{}
 	}
 }
 
