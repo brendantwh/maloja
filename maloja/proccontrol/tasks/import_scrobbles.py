@@ -7,12 +7,11 @@ from ...cleanup import *
 from ...pkg_global.conf import data_dir
 
 
-def known_artist(name):
+def parser():
+	# the same parser (and rules) as incoming scrobbles
 	# imported lazily, so loading this module doesn't open the database
-	from ...database.sqldb import is_known_artist
-	return is_known_artist(name)
-
-c = CleanerAgent(known_artist=known_artist)
+	from ... import database
+	return database.cla
 
 outputs = {
 	"CONFIDENT_IMPORT": lambda msg: None,
@@ -108,7 +107,7 @@ def import_scrobbles(inputf):
 			timestamps.add(scrobble['scrobble_time'])
 
 			# clean up
-			(scrobble['track_artists'],scrobble['track_title'],scrobble['album_name']) = c.fullclean(scrobble['track_artists'],scrobble['track_title'],scrobble.get('album_name'))
+			(scrobble['track_artists'],scrobble['track_title'],scrobble['album_name']) = parser().fullclean(scrobble['track_artists'],scrobble['track_title'],scrobble.get('album_name'))
 
 			# extra info
 			extrainfo = {}
