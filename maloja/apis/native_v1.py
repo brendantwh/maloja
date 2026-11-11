@@ -14,7 +14,7 @@ from nimrodel import Multi
 
 
 from .. import database
-from ..database import reparse
+from ..database import duplicates, reparse
 from ..pkg_global.conf import malojaconfig, data_dir, auth
 
 
@@ -114,6 +114,14 @@ errors = {
 		"status":"failure",
 		"error":{
 			'type':'invalid_rule',
+			'value':None,
+			'desc':str(e)
+		}
+	}),
+	duplicates.DuplicateError: lambda e: (400,{
+		"status":"failure",
+		"error":{
+			'type':'invalid_request',
 			'value':None,
 			'desc':str(e)
 		}
@@ -1085,6 +1093,23 @@ def reparse_apply(skip_track_ids=[],reorder=False):
 	"""Internal Use Only"""
 	reparse.start_apply(skip_track_ids,reorder)
 	return {"status":"success","desc":"Reparse started, a snapshot of the database is saved first."}
+
+
+@api.get("duplicates")
+@auth.authenticated_function(api=True)
+@catch_exceptions
+def get_duplicates(**keys):
+	"""Internal Use Only"""
+	return database.get_duplicates()
+
+
+@api.post("dismiss_duplicate")
+@auth.authenticated_function(api=True)
+@catch_exceptions
+def dismiss_duplicate(entity_type,ids):
+	"""Internal Use Only"""
+	database.dismiss_duplicate(entity_type,ids)
+	return {"status":"success","desc":"Got it, this won't be suggested again."}
 
 
 @api.get("aliases")
