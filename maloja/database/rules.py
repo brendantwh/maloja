@@ -13,7 +13,7 @@ from threading import RLock
 import sqlalchemy as sql
 from doreah.logging import log
 
-from ..cleanup import RULE_COLUMNS, Rule, parse_rules_tsv
+from ..cleanup import RULE_COLUMNS, SCOPABLE, Rule, parse_rules_tsv
 from ..pkg_global.conf import data_dir
 from . import sqldb
 from .sqldb import DB
@@ -33,7 +33,10 @@ def make_rule(ruletype, fields, scope=None):
 	fields = tuple((f or '').strip() for f in fields)
 	if len(fields) != RULE_COLUMNS[ruletype] or not all(fields):
 		raise RuleError(f"{ruletype} needs {RULE_COLUMNS[ruletype]} non-empty fields")
-	return Rule(ruletype, fields, (scope or '').strip() or None)
+	scope = (scope or '').strip() or None
+	if scope and ruletype not in SCOPABLE:
+		raise RuleError(f"{ruletype} can't be limited to an artist")
+	return Rule(ruletype, fields, scope)
 
 
 def _row_to_rule(row):
