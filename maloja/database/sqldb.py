@@ -923,15 +923,45 @@ def edit_album(album_id: int, albumupdatedict: dict, record_alias=False, dbconn=
 
 ### Edit associations
 
-@connection_provider
-def add_artists_to_tracks(track_ids: list[int], artist_ids: list[int], dbconn=None) -> bool:
+def _linked_artist_ids(table, column, entity_ids, dbconn):
+	rows = dbconn.execute(sql.select(DB[table].c[column], DB[table].c.artist_id).where(DB[table].c[column].in_(entity_ids)))
+	result = {entity_id: set() for entity_id in entity_ids}
+	for entity_id, artist_id in rows:
+		result[entity_id].add(artist_id)
+	return result
 
+
+def record_artist_change_aliases(entity_type, before, dbconn):
+	# the old title with the old artists should still find the edited track or album
+	table, column = ('trackartists', 'track_id') if entity_type == 'track' else ('albumartists', 'album_id')
+	after = _linked_artist_ids(table, column, list(before), dbconn)
+	for entity_id, (entity, artist_ids) in before.items():
+		if after[entity_id] != artist_ids:
+			title = entity['title'] if entity_type == 'track' else entity['albumtitle']
+			add_alias(entity_type, title, entity_id, artists=entity['artists'] or [], source='artists', dbconn=dbconn)
+
+
+def _before_artist_change(entity_type, entity_ids, record_alias, dbconn):
+	if not record_alias:
+		return None
+	table, column = ('trackartists', 'track_id') if entity_type == 'track' else ('albumartists', 'album_id')
+	artist_ids = _linked_artist_ids(table, column, entity_ids, dbconn)
+	get = get_track if entity_type == 'track' else get_album
+	return {entity_id: (get(entity_id, dbconn=dbconn), artist_ids[entity_id]) for entity_id in entity_ids}
+
+
+@connection_provider
+def add_artists_to_tracks(track_ids: list[int], artist_ids: list[int], record_alias=False, dbconn=None) -> bool:
+
+	before = _before_artist_change('track', track_ids, record_alias, dbconn)
 	op = DB['trackartists'].insert().values([
 		{'track_id': track_id, 'artist_id': artist_id}
 		for track_id in track_ids for artist_id in artist_ids
 	])
 
 	result = dbconn.execute(op)
+	if before:
+		record_artist_change_aliases('track', before, dbconn)
 	# the resulting tracks could now be duplicates of existing ones
 	# this also takes care of clean_db
 	merge_duplicate_tracks(dbconn=dbconn)
@@ -939,7 +969,9 @@ def add_artists_to_tracks(track_ids: list[int], artist_ids: list[int], dbconn=No
 
 
 @connection_provider
-def remove_artists_from_tracks(track_ids: list[int], artist_ids: list[int], dbconn=None) -> bool:
+def remove_artists_from_tracks(track_ids: list[int], artist_ids: list[int], record_alias=False, dbconn=None) -> bool:
+
+	before = _before_artist_change('track', track_ids, record_alias, dbconn)
 
 	# only tracks that have at least one other artist
 	subquery = DB['trackartists'].select().where(
@@ -957,6 +989,8 @@ def remove_artists_from_tracks(track_ids: list[int], artist_ids: list[int], dbco
 	)
 
 	result = dbconn.execute(op)
+	if before:
+		record_artist_change_aliases('track', before, dbconn)
 	# the resulting tracks could now be duplicates of existing ones
 	# this also takes care of clean_db
 	merge_duplicate_tracks(dbconn=dbconn)
@@ -964,14 +998,17 @@ def remove_artists_from_tracks(track_ids: list[int], artist_ids: list[int], dbco
 
 
 @connection_provider
-def add_artists_to_albums(album_ids: list[int], artist_ids: list[int], dbconn=None) -> bool:
+def add_artists_to_albums(album_ids: list[int], artist_ids: list[int], record_alias=False, dbconn=None) -> bool:
 
+	before = _before_artist_change('album', album_ids, record_alias, dbconn)
 	op = DB['albumartists'].insert().values([
 		{'album_id':album_id,'artist_id':artist_id}
 		for album_id in album_ids for artist_id in artist_ids
 	])
 
 	result = dbconn.execute(op)
+	if before:
+		record_artist_change_aliases('album', before, dbconn)
 	# the resulting albums could now be duplicates of existing ones
 	# this also takes care of clean_db
 	merge_duplicate_albums(dbconn=dbconn)
@@ -979,8 +1016,9 @@ def add_artists_to_albums(album_ids: list[int], artist_ids: list[int], dbconn=No
 
 
 @connection_provider
-def remove_artists_from_albums(album_ids: list[int], artist_ids: list[int], dbconn=None) -> bool:
+def remove_artists_from_albums(album_ids: list[int], artist_ids: list[int], record_alias=False, dbconn=None) -> bool:
 
+	before = _before_artist_change('album', album_ids, record_alias, dbconn)
 	# no check here, albums are allowed to have zero artists
 
 	op = DB['albumartists'].delete().where(
@@ -991,6 +1029,8 @@ def remove_artists_from_albums(album_ids: list[int], artist_ids: list[int], dbco
 	)
 
 	result = dbconn.execute(op)
+	if before:
+		record_artist_change_aliases('album', before, dbconn)
 	# the resulting albums could now be duplicates of existing ones
 	# this also takes care of clean_db
 	merge_duplicate_albums(dbconn=dbconn)

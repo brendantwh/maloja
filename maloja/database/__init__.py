@@ -303,10 +303,10 @@ def associate_albums_to_artist(target_id,source_ids,remove=False):
 	target = sqldb.get_artist(target_id)
 	if remove:
 		log(f"Removing {sources} from {target}")
-		sqldb.remove_artists_from_albums(artist_ids=[target_id],album_ids=source_ids)
+		sqldb.remove_artists_from_albums(artist_ids=[target_id],album_ids=source_ids,record_alias=True)
 	else:
 		log(f"Adding {sources} into {target}")
-		sqldb.add_artists_to_albums(artist_ids=[target_id],album_ids=source_ids)
+		sqldb.add_artists_to_albums(artist_ids=[target_id],album_ids=source_ids,record_alias=True)
 	result = {'sources':sources,'target':target}
 	dbcache.invalidate_entity_cache()
 	dbcache.invalidate_caches()
@@ -319,10 +319,10 @@ def associate_tracks_to_artist(target_id,source_ids,remove=False):
 	target = sqldb.get_artist(target_id)
 	if remove:
 		log(f"Removing {sources} from {target}")
-		sqldb.remove_artists_from_tracks(artist_ids=[target_id],track_ids=source_ids)
+		sqldb.remove_artists_from_tracks(artist_ids=[target_id],track_ids=source_ids,record_alias=True)
 	else:
 		log(f"Adding {sources} into {target}")
-		sqldb.add_artists_to_tracks(artist_ids=[target_id],track_ids=source_ids)
+		sqldb.add_artists_to_tracks(artist_ids=[target_id],track_ids=source_ids,record_alias=True)
 	result = {'sources':sources,'target':target}
 	dbcache.invalidate_entity_cache()
 	dbcache.invalidate_caches()
