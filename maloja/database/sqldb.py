@@ -982,6 +982,20 @@ def _before_artist_change(entity_type, entity_ids, record_alias, dbconn):
 
 
 @connection_provider
+def set_track_artist_order(track_id: int, artist_ids: list[int], dbconn=None):
+	# the order is the order of the rows, so the rows are written again
+	table = DB['trackartists']
+	current = [r.artist_id for r in dbconn.execute(sql.select(table.c.artist_id).where(table.c.track_id == track_id).order_by(table.c.id))]
+	if sorted(current) != sorted(artist_ids):
+		raise ValueError(f"Track {track_id} has artists {current}, not {artist_ids}")
+	if current == list(artist_ids):
+		return False
+	dbconn.execute(table.delete().where(table.c.track_id == track_id))
+	dbconn.execute(table.insert().values([{'track_id': track_id, 'artist_id': a} for a in artist_ids]))
+	return True
+
+
+@connection_provider
 def add_artists_to_tracks(track_ids: list[int], artist_ids: list[int], record_alias=False, dbconn=None) -> bool:
 
 	before = _before_artist_change('track', track_ids, record_alias, dbconn)
