@@ -8,6 +8,7 @@
 import json
 import os
 import time
+from threading import RLock
 
 import sqlalchemy as sql
 from doreah.logging import log
@@ -164,6 +165,22 @@ def load_rules(import_files=False, dbconn=None):
 		if kind == 'file':
 			rules += _read_file(path, name)
 	return rules
+
+
+_reload_lock = RLock()
+
+def reload_rules():
+	"""Load the rules again and apply them right away, no restart needed."""
+	from . import associated, dbcache
+	from . import cla
+	with _reload_lock:
+		loaded = load_rules(import_files=True)
+		cla.set_rules(loaded)
+		# countas lives in its own table, and its names are resolved now (artists created later need another reload)
+		associated.load_associated_rules(loaded)
+		dbcache.invalidate_entity_cache()
+		dbcache.invalidate_caches()
+	return loaded
 
 
 # changes

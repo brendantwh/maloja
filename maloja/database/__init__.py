@@ -974,9 +974,7 @@ def start_db():
 	upgrade.parse_old_albums()
 
 	# rule files waiting in the rules folder go into the database, then the rules are loaded
-	cla.set_rules(rules.load_rules(import_files=True))
-	from . import associated
-	associated.load_associated_rules()
+	rules.reload_rules()
 
 	# import scrobbles
 	from ..proccontrol.tasks.import_scrobbles import import_scrobbles #lmao this codebase is so fucked

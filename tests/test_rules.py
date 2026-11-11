@@ -61,6 +61,22 @@ def test_lazy_load_changes_nothing(folder):
 		assert conn.execute(sql.select(sqldb.DB["rules"])).all() == []
 
 
+def test_reload_applies_without_restart(folder, db):
+	raw = {"track_artists": ["A"], "track_title": "RED", "scrobble_time": 1}
+	assert db.rawscrobble_to_scrobbledict(raw)["track"]["title"] == "RED"
+	rules.add_rule("replacetitle", ["RED", "Red"])
+	rules.reload_rules()
+	assert db.rawscrobble_to_scrobbledict(raw)["track"]["title"] == "Red"
+
+
+def test_reload_updates_countas(folder, db):
+	sqldb.add_scrobble({"time": 1, "track": {"artists": ["Member"], "title": "Song"}, "origin": "client:test", "rawscrobble": None})
+	sqldb.add_scrobble({"time": 2, "track": {"artists": ["Group"], "title": "Hit"}, "origin": "client:test", "rawscrobble": None})
+	rules.add_rule("countas", ["Member", "Group"])
+	rules.reload_rules()
+	assert sqldb.get_associated_artists("Group") == ["Member"]
+
+
 def test_own_rule_wins_over_set(folder, db):
 	rules.set_ruleset_enabled("test_set", True)
 	rules.add_rule("replacetitle", ["red", "Red (mine)"])
