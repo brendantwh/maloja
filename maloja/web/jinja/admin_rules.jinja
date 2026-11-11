@@ -1,0 +1,285 @@
+{% set page ='admin_rules' %}
+{% extends "abstracts/admin.jinja" %}
+{% block title %}Maloja - Parser Rules{% endblock %}
+
+{% set data = dbc.get_parser_rules() %}
+{% set prefill = {
+	'type': request.query.get('type',''),
+	'fields': [request.query.getunicode('f0') or '', request.query.getunicode('f1') or '', request.query.getunicode('f2') or ''],
+	'scope': request.query.getunicode('scope') or '',
+	'note': request.query.getunicode('note') or ''
+} %}
+
+{% block scripts %}
+	<style>
+		.rules-form input[type=text] { width: 300px; }
+		.rules-form td { padding: 3px 10px 3px 0; vertical-align: top; }
+		.rules-form .hint { opacity: 0.6; font-size: 80%; }
+		table.misc tr.off td { opacity: 0.4; }
+		table.misc td.fields span.field { background-color: rgba(255,255,255,0.08); padding: 1px 4px; margin-right: 4px; }
+		.testresult { margin-left: 20px; }
+		details.ruleset { margin: 4px 0 4px 20px; }
+		textarea.rulesimport { width: 600px; height: 120px; font-family: monospace; }
+	</style>
+	<script>
+		const RULE_TYPES = {{ data.types | tojson }};
+		const PREFILL = {{ prefill | tojson }};
+
+		function rulesRequest(endpoint, payload, reload=true) {
+			neo.xhttpreq("/apis/mlj_1/" + endpoint, payload, "POST", function(req) {
+				notifyCallback(req);
+				if (reload && req.status == 200) { setTimeout(function(){ window.location.reload(); }, 800); }
+			}, true);
+		}
+
+		// the form
+		function showFields(values) {
+			const type = document.getElementById('rule_type').value;
+			const info = RULE_TYPES[type];
+			document.getElementById('rule_desc').textContent = info.desc;
+			for (let i = 0; i < 3; i++) {
+				const row = document.getElementById('rule_field_row_' + i);
+				row.style.display = (i < info.fields.length) ? '' : 'none';
+				document.getElementById('rule_field_label_' + i).textContent = info.fields[i] || '';
+				document.getElementById('rule_field_hint_' + i).style.display = info.lists.includes(i) ? '' : 'none';
+				if (values) { document.getElementById('rule_field_' + i).value = values[i] || ''; }
+			}
+			document.getElementById('rule_scope_row').style.display = info.scopable ? '' : 'none';
+		}
+
+		function fillForm(id, type, fields, scope, note) {
+			document.getElementById('rule_id').value = id || '';
+			if (type) { document.getElementById('rule_type').value = type; }
+			showFields(fields);
+			document.getElementById('rule_scope').value = scope || '';
+			document.getElementById('rule_note').value = note || '';
+			document.getElementById('rule_save').textContent = id ? 'Save changes' : 'Add rule';
+			document.getElementById('rule_cancel').style.display = id ? '' : 'none';
+		}
+
+		function editRule(element) {
+			const rule = JSON.parse(element.closest('tr').dataset.rule);
+			fillForm(rule.id, rule.type, rule.fields, rule.scope, rule.note);
+			document.getElementById('rule_form_anchor').scrollIntoView();
+		}
+
+		function saveRule() {
+			const type = document.getElementById('rule_type').value;
+			const fields = [];
+			for (let i = 0; i < RULE_TYPES[type].fields.length; i++) { fields.push(document.getElementById('rule_field_' + i).value); }
+			const payload = {
+				'type': type,
+				'fields': fields,
+				'scope': RULE_TYPES[type].scopable ? document.getElementById('rule_scope').value : '',
+				'note': document.getElementById('rule_note').value
+			};
+			const id = document.getElementById('rule_id').value;
+			if (id) { payload.id = parseInt(id); rulesRequest('edit_rule', payload); }
+			else { rulesRequest('add_rule', payload); }
+		}
+
+		function insertSeparator(i) {
+			const input = document.getElementById('rule_field_' + i);
+			input.value += '␟';
+			input.focus();
+		}
+
+		// the list
+		function ruleOf(element) { return JSON.parse(element.closest('tr').dataset.rule); }
+		function toggleRule(element) { rulesRequest('toggle_rule', {'id': ruleOf(element).id, 'enabled': element.checked}); }
+		function deleteRule(element) {
+			if (confirm('Delete this rule?')) { rulesRequest('delete_rule', {'id': ruleOf(element).id}); }
+		}
+
+		function filterRules() {
+			const type = document.getElementById('filter_type').value;
+			const text = document.getElementById('filter_text').value.toLowerCase();
+			for (const row of document.querySelectorAll('#own_rules tr[data-rule]')) {
+				const rule = JSON.parse(row.dataset.rule);
+				const haystack = [rule.type, ...rule.fields, rule.scope || '', rule.note || ''].join(' ').toLowerCase();
+				row.style.display = ((!type || rule.type == type) && haystack.includes(text)) ? '' : 'none';
+			}
+		}
+
+		// predefined sets
+		function toggleRuleset(element, name) { rulesRequest('toggle_ruleset', {'name': name, 'enabled': element.checked}); }
+		function toggleSetRule(element, name) { rulesRequest('toggle_ruleset_rule', {'name': name, 'key': ruleOf(element).key, 'enabled': element.checked}); }
+		function copySetRule(element, name) { rulesRequest('copy_ruleset_rule', {'name': name, 'key': ruleOf(element).key}); }
+
+		// test box
+		function testRules() {
+			const payload = {
+				'artists': document.getElementById('test_artists').value,
+				'title': document.getElementById('test_title').value,
+				'album': document.getElementById('test_album').value
+			};
+			neo.xhttpreq("/apis/mlj_1/test_rules", payload, "POST", function(req) {
+				const out = document.getElementById('test_result');
+				out.replaceChildren();
+				if (req.status != 200) { notifyCallback(req); return; }
+				const r = req.response;
+				const line = function(label, value) {
+					const div = document.createElement('div');
+					const b = document.createElement('b');
+					b.textContent = label + ': ';
+					div.append(b, document.createTextNode(value));
+					out.append(div);
+				};
+				line('Artists', r.artists.join(' | '));
+				line('Title', r.title);
+				if (r.album) { line('Album', r.album); }
+				const describe = function(rule) {
+					return rule.type + ' ' + rule.fields.join(' → ') + (rule.scope ? ' (only for ' + rule.scope + ')' : '') + '  [' + (rule.source || 'your rules') + ']';
+				};
+				line('Rules that fired', r.rules.length ? '' : 'none');
+				for (const rule of r.rules) { line('•', describe(rule)); }
+				for (const rule of r.countas) { line('In charts', describe(rule)); }
+			}, true);
+		}
+
+		// import
+		function readRulesFile(input) {
+			const reader = new FileReader();
+			reader.onload = function() { document.getElementById('import_text').value = reader.result; };
+			reader.readAsText(input.files[0]);
+		}
+		function importRules() {
+			neo.xhttpreq("/apis/mlj_1/import_rules_tsv", {'text': document.getElementById('import_text').value}, "POST", function(req) {
+				notifyCallback(req);
+				if (req.status == 200) {
+					const errors = req.response.errors;
+					if (errors.length) { alert("Some lines were not imported:\n\n" + errors.join("\n")); }
+					window.location.reload();
+				}
+			}, true);
+		}
+
+		document.addEventListener("DOMContentLoaded", function() {
+			const prefilled = PREFILL.type && RULE_TYPES[PREFILL.type];
+			fillForm(null, prefilled ? PREFILL.type : null, prefilled ? PREFILL.fields : null, PREFILL.scope, PREFILL.note);
+			if (prefilled) { document.getElementById('rule_form_anchor').scrollIntoView(); }
+		});
+	</script>
+{% endblock %}
+
+{% macro fields(rule) -%}
+	{%- for f in rule.fields %}<span class="field">{{ f }}</span>{% endfor -%}
+{%- endmacro %}
+
+{% block maincontent %}
+
+	<h2>Try it</h2>
+	See how a scrobble would be parsed with the current rules.
+	<br/><br/>
+	<table class="rules-form">
+		<tr><td>Artists</td><td><input type="text" id="test_artists" placeholder="as sent by your player, e.g. Simon & Garfunkel" /></td></tr>
+		<tr><td>Title</td><td><input type="text" id="test_title" /></td></tr>
+		<tr><td>Album</td><td><input type="text" id="test_album" placeholder="optional" /></td></tr>
+		<tr><td></td><td><button type="button" onclick="testRules()">Test</button></td></tr>
+	</table>
+	<div id="test_result" class="testresult"></div>
+
+	<h2 id="rule_form_anchor">Add a rule</h2>
+	Changes apply to new scrobbles right away. To apply them to scrobbles you already have, use <a class="textlink" href="/admin_reparse">Reparse</a>.
+	<br/><br/>
+	<input type="hidden" id="rule_id" />
+	<table class="rules-form">
+		<tr>
+			<td>Type</td>
+			<td>
+				<select id="rule_type" onchange="showFields(null)">
+					{% for t in data.types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+				</select>
+				<div class="hint" id="rule_desc"></div>
+			</td>
+		</tr>
+		{% for i in range(3) %}
+		<tr id="rule_field_row_{{ i }}">
+			<td id="rule_field_label_{{ i }}"></td>
+			<td>
+				<input type="text" id="rule_field_{{ i }}" />
+				<span id="rule_field_hint_{{ i }}"><button type="button" onclick="insertSeparator({{ i }})" title="separates several artists">␟</button> <span class="hint">separate several artists with ␟</span></span>
+			</td>
+		</tr>
+		{% endfor %}
+		<tr id="rule_scope_row">
+			<td>Only for artist</td>
+			<td><input type="text" id="rule_scope" placeholder="leave empty for all artists" /></td>
+		</tr>
+		<tr><td>Note</td><td><input type="text" id="rule_note" placeholder="optional" /></td></tr>
+		<tr><td></td><td>
+			<button type="button" id="rule_save" onclick="saveRule()">Add rule</button>
+			<button type="button" id="rule_cancel" onclick="fillForm(null)" style="display:none;">Cancel</button>
+		</td></tr>
+	</table>
+
+	<h2>Your rules</h2>
+	<select id="filter_type" onchange="filterRules()">
+		<option value="">All types</option>
+		{% for t in data.types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+	</select>
+	<input type="text" id="filter_text" placeholder="Search" oninput="filterRules()" />
+	<br/><br/>
+	{% if data.rules %}
+	<table class="misc" id="own_rules">
+		<tr><th>On</th><th>Type</th><th>Rule</th><th>Only for</th><th>From</th><th>Note</th><th></th></tr>
+		{% for rule in data.rules %}
+		<tr data-rule="{{ rule | tojson | forceescape }}" class="{{ '' if rule.enabled else 'off' }}">
+			<td><input type="checkbox" {{ 'checked' if rule.enabled }} onchange="toggleRule(this)" /></td>
+			<td>{{ rule.type }}</td>
+			<td class="fields">{{ fields(rule) }}</td>
+			<td>{{ rule.scope or '' }}</td>
+			<td>{{ rule.source }}</td>
+			<td>{{ rule.note }}</td>
+			<td>
+				<a class="textlink" href="javascript:void(0)" onclick="editRule(this)">Edit</a>
+				<a class="textlink" href="javascript:void(0)" onclick="deleteRule(this)">Delete</a>
+			</td>
+		</tr>
+		{% endfor %}
+	</table>
+	{% else %}
+	You have no rules of your own yet.
+	{% endif %}
+	<br/>
+	<span class="hint">belongtogether and notanartist match the exact spelling, all other rules ignore case.</span>
+
+	<h2>Import and export</h2>
+	Paste rules in the tab-separated format (see <span class="stats">rules.info</span>), or pick a file. Rules you already have are skipped.
+	You can also drop <span class="stats">.tsv</span> files into the rules folder: they are imported on the next start or reload, and renamed to <span class="stats">.tsv.imported</span>.
+	<br/><br/>
+	<input type="file" accept=".tsv,.txt,text/tab-separated-values" onchange="readRulesFile(this)" />
+	<br/>
+	<textarea class="rulesimport" id="import_text" placeholder="replacetitle&#9;RED&#9;Red&#9;artist=HyunA"></textarea>
+	<br/>
+	<button type="button" onclick="importRules()">Import</button>
+	<button type="button" onclick="rulesRequest('reload_rules', {})">Reload rule files</button>
+	<a class="textlink" href="/apis/mlj_1/export_rules">Export your rules</a>
+
+	<h2>Predefined rule sets</h2>
+	Rule sets are read from the files that come with Maloja, so updates reach you. You can switch single rules off, or copy one to your rules to change it (yours win).
+	<br/><br/>
+	{% for rs in data.rulesets %}
+	<div>
+		<input type="checkbox" {{ 'checked' if rs.active }} onchange="toggleRuleset(this, {{ rs.file | tojson | forceescape }})" />
+		<b>{{ rs.name }}</b> by {{ rs.author }}: {{ rs.desc }}
+		<details class="ruleset">
+			<summary>{{ rs.rules | length }} rules</summary>
+			<table class="misc">
+				{% for rule in rs.rules %}
+				<tr data-rule="{{ rule | tojson | forceescape }}" class="{{ '' if rule.enabled else 'off' }}">
+					<td><input type="checkbox" {{ 'checked' if rule.enabled }} onchange="toggleSetRule(this, {{ rs.file | tojson | forceescape }})" /></td>
+					<td>{{ rule.type }}</td>
+					<td class="fields">{{ fields(rule) }}</td>
+					<td>{{ rule.scope or '' }}</td>
+					<td><a class="textlink" href="javascript:void(0)" onclick="copySetRule(this, {{ rs.file | tojson | forceescape }})">Copy to my rules</a></td>
+				</tr>
+				{% endfor %}
+			</table>
+		</details>
+	</div>
+	{% else %}
+	No predefined rule sets found.
+	{% endfor %}
+
+{% endblock %}
