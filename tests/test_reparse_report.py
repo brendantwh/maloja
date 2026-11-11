@@ -29,6 +29,9 @@ CASES = [
 	(["Eta"], "Imported", None, None, "import:lastfm"),
 	# would be rejected today, since Spotify is an invalid artist
 	(["Spotify"], "Ad", ["Spotify"], "Ad", "client:test"),
+	# old spellings that aliases now map to the stored entities
+	(["Iota"], "Hymn", ["Iota Old"], "Hymn", "client:test"),
+	(["Kappa"], "Anthem", ["Kappa"], "Anthem (feat. Lambda)", "client:test"),
 ]
 
 
@@ -48,13 +51,15 @@ def report(module_db):
 		}
 		for i, (artists, title, raw_artists, raw_title, origin) in enumerate(CASES)
 	])
+	sqldb.add_alias("artist", "Iota Old", sqldb.get_artist_id("Iota"))
+	sqldb.add_alias("track", "Anthem (feat. Lambda)", sqldb.get_track_id({"artists": ["Kappa"], "title": "Anthem"}), artists=["Kappa", "Lambda"])
 	yield build_report()
 	os.remove(rulesfile)
 
 
 def test_coverage(report):
 	scrobbles = report["scrobbles"]
-	assert (scrobbles["total"], scrobbles["reparsed"], scrobbles["unchanged"], scrobbles["moved"]) == (10, 8, 4, 4)
+	assert (scrobbles["total"], scrobbles["reparsed"], scrobbles["unchanged"], scrobbles["moved"]) == (12, 10, 6, 4)
 	assert scrobbles["no_raw"] == {"total": 1, "by_origin": {"import:lastfm": 1}}
 	assert (scrobbles["discarded"]["count"], scrobbles["errors"]["count"]) == (1, 0)
 
