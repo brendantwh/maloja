@@ -157,6 +157,13 @@ class CleanerAgent:
 					ls += self.parseArtists(i)
 				return ls
 
+		# commas and " x " are often part of a name ("Tyler, The Creator"), so these only
+		# split when every part is already a known artist ("Lady Gaga, Bradley Cooper")
+		if self.known_artist and malojaconfig["ARTIST_SPLIT_KNOWN_LISTS"]:
+			parts = [p.strip() for p in re.split(r", | x ",a,flags=re.IGNORECASE)]
+			if len(parts) > 1 and all(p and self.known_artist(p) for p in parts):
+				return [artist for p in parts for artist in self.parseArtists(p)]
+
 
 
 
