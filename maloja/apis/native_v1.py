@@ -2,7 +2,7 @@ import os
 import math
 import traceback
 
-from bottle import response, static_file, FormsDict
+from bottle import response, static_file, FormsDict, HTTPResponse
 
 from inspect import signature
 
@@ -108,6 +108,14 @@ errors = {
 			'value': None,
 			'desc': 'This scrobble exists in the database (same timestamp and track). The submitted scrobble was not added.'
 		}]
+	}),
+	database.rules.RuleError: lambda e: (400,{
+		"status":"failure",
+		"error":{
+			'type':'invalid_rule',
+			'value':None,
+			'desc':str(e)
+		}
 	}),
 	images.MalformedB64: lambda e: (400,{
 		"status":"failure",
@@ -765,24 +773,6 @@ def import_rulemodule(**keys):
 
 
 
-@api.post("rebuild")
-@auth.authenticated_function(api=True)
-@catch_exceptions
-def rebuild(**keys):
-	"""Internal Use Only"""
-	log("Database rebuild initiated!")
-	database.sync()
-	dbstatus['rebuildinprogress'] = True
-	from ..proccontrol.tasks.fixexisting import fix
-	fix()
-	global cla
-	cla = CleanerAgent()
-	database.build_db()
-	database.invalidate_caches()
-
-
-
-
 @api.get("search")
 @catch_exceptions
 def search(**keys):
@@ -841,15 +831,133 @@ def search(**keys):
 	return {"artists":artists_result[:max_],"tracks":tracks_result[:max_],"albums":albums_result[:max_]}
 
 
+def rules_changed(desc,**extra):
+	# every change applies right away
+	database.rules.reload_rules()
+	return {"status":"success","desc":desc,**extra}
+
+
+@api.get("rules")
+@auth.authenticated_function(api=True)
+@catch_exceptions
+def get_rules(**keys):
+	"""Internal Use Only"""
+	return {"rules":database.rules.list_rules(),"rulesets":database.rules.list_rulesets()}
+
+
+@api.post("add_rule")
+@auth.authenticated_function(api=True)
+@catch_exceptions
+def add_rule(type,fields,scope=None,note=None):
+	"""Internal Use Only"""
+	rule_id = database.rules.add_rule(type,fields,scope,note=note)
+	if rule_id is None:
+		raise database.rules.RuleError("The same rule already exists")
+	return rules_changed("Rule added!",id=rule_id)
+
+
 @api.post("newrule")
 @auth.authenticated_function(api=True)
 @catch_exceptions
-def newrule(**keys):
+def newrule(type,fields,scope=None,note=None):
 	"""Internal Use Only"""
-	pass
-	# TODO after implementing new rule system
-	#tsv.add_entry(data_dir['rules']("webmade.tsv"),[k for k in keys])
-	#addEntry("rules/webmade.tsv",[k for k in keys])
+	return add_rule(type,fields,scope,note)
+
+
+@api.post("edit_rule")
+@auth.authenticated_function(api=True)
+@catch_exceptions
+def edit_rule(id,type,fields,scope=None,note=None):
+	"""Internal Use Only"""
+	database.rules.edit_rule(id,type,fields,scope,note)
+	return rules_changed("Rule changed!")
+
+
+@api.post("delete_rule")
+@auth.authenticated_function(api=True)
+@catch_exceptions
+def delete_rule(id):
+	"""Internal Use Only"""
+	database.rules.delete_rule(id)
+	return rules_changed("Rule deleted!")
+
+
+@api.post("toggle_rule")
+@auth.authenticated_function(api=True)
+@catch_exceptions
+def toggle_rule(id,enabled):
+	"""Internal Use Only"""
+	database.rules.set_rule_enabled(id,enabled)
+	return rules_changed("Rule switched " + ("on!" if enabled else "off!"))
+
+
+@api.post("toggle_ruleset")
+@auth.authenticated_function(api=True)
+@catch_exceptions
+def toggle_ruleset(name,enabled):
+	"""Internal Use Only"""
+	database.rules.set_ruleset_enabled(name,enabled)
+	return rules_changed("Rule set switched " + ("on!" if enabled else "off!"))
+
+
+@api.post("toggle_ruleset_rule")
+@auth.authenticated_function(api=True)
+@catch_exceptions
+def toggle_ruleset_rule(name,key,enabled):
+	"""Internal Use Only"""
+	database.rules.set_ruleset_rule_enabled(name,key,enabled)
+	return rules_changed("Rule switched " + ("on!" if enabled else "off!"))
+
+
+@api.post("copy_ruleset_rule")
+@auth.authenticated_function(api=True)
+@catch_exceptions
+def copy_ruleset_rule(name,key):
+	"""Internal Use Only"""
+	rule_id = database.rules.copy_ruleset_rule(name,key)
+	if rule_id is None:
+		raise database.rules.RuleError("You already have this rule")
+	return rules_changed("Rule copied to your rules!",id=rule_id)
+
+
+@api.post("test_rules")
+@auth.authenticated_function(api=True)
+@catch_exceptions
+def test_rules(artists,title,album=None):
+	"""Internal Use Only"""
+	result = database.cla.explain(artists,title,album or None)
+	rules = [database.rules.rule_to_dict(r) for r in result['rules']]
+	# countas doesn't change the parse, it groups artists in charts
+	countas = [database.rules.rule_to_dict(r) for r in database.cla.rules if r.type == "countas" and r.fields[0].lower() in {a.lower() for a in result['artists']}]
+	return {"status":"success","artists":result['artists'],"title":result['title'],"album":result['album'],"rules":rules,"countas":countas}
+
+
+@api.get("export_rules")
+@auth.authenticated_function(api=True)
+@catch_exceptions
+def export_rules(**keys):
+	"""Internal Use Only"""
+	return HTTPResponse(database.rules.export_tsv(),headers={
+		"Content-Type":"text/tab-separated-values; charset=utf-8",
+		"Content-Disposition":'attachment; filename="maloja_rules.tsv"'
+	})
+
+
+@api.post("import_rules_tsv")
+@auth.authenticated_function(api=True)
+@catch_exceptions
+def import_rules_tsv(text):
+	"""Internal Use Only"""
+	result = database.rules.import_tsv(text)
+	return rules_changed(f"{result['added']} rules added, {result['existing']} already there, {len(result['errors'])} errors",**result)
+
+
+@api.post("reload_rules")
+@auth.authenticated_function(api=True)
+@catch_exceptions
+def reload_rules(**keys):
+	"""Internal Use Only"""
+	return rules_changed("Rules reloaded!")
 
 
 @api.post("settings")

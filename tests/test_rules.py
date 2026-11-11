@@ -82,3 +82,40 @@ def test_own_rule_wins_over_set(folder, db):
 	rules.add_rule("replacetitle", ["red", "Red (mine)"])
 	db.cla.set_rules(rules.load_rules())
 	assert db.cla.fullclean("A", "RED", None)[1] == "Red (mine)"
+
+
+def test_set_rule_switched_off_and_copied(folder):
+	rules.set_ruleset_enabled("test_set", True)
+	(ruleset,) = rules.list_rulesets()
+	red = next(r for r in ruleset["rules"] if r["type"] == "replacetitle")
+	rules.set_ruleset_rule_enabled("test_set", red["key"], False)
+	assert fields(rules.load_rules()) == [("replaceartist", ("Set Old", "Set New"))]
+	assert [r["enabled"] for r in rules.list_rulesets()[0]["rules"]] == [False, True]
+	rules.copy_ruleset_rule("test_set", red["key"])
+	assert fields(rules.load_rules()) == [("replaceartist", ("Set Old", "Set New")), ("replacetitle", ("RED", "Red (set)"))]
+	rules.set_ruleset_rule_enabled("test_set", red["key"], True)
+	assert len(rules.load_rules()) == 3
+
+
+def test_tsv_round_trip(folder):
+	rules.add_rule("replacetitle", ["RED", "Red"], scope="HyunA")
+	off = rules.add_rule("belongtogether", ["AC/DC"])
+	rules.set_rule_enabled(off, False)
+	text = rules.export_tsv()
+	for rule in rules.list_rules():
+		rules.delete_rule(rule["id"])
+	assert rules.import_tsv(text + "replacetitle\tbroken\n") == {"added": 1, "existing": 0, "errors": ["line 6: replacetitle needs 2 columns, got 1"]}
+	assert [(r.type, r.fields, r.scope) for r in rules.load_rules()] == [("replacetitle", ("RED", "Red"), "HyunA")]
+	assert rules.import_tsv(text)["existing"] == 1
+
+
+def test_invalid_rules_are_refused(folder):
+	with pytest.raises(rules.RuleError):
+		rules.add_rule("replaceartist", ["A", "B"], scope="C")
+	with pytest.raises(rules.RuleError):
+		rules.add_rule("replacetitle", ["A\tB", "C"])
+	first = rules.add_rule("replacetitle", ["A", "B"])
+	second = rules.add_rule("replacetitle", ["C", "D"])
+	with pytest.raises(rules.RuleError):
+		rules.edit_rule(second, "replacetitle", ["A", "B"])
+	assert rules.add_rule("replacetitle", ["A", "B"]) is None and first
