@@ -66,19 +66,28 @@ def test_track_changes(report):
 	tracks = report["tracks"]
 	assert (tracks["merges"]["count"], tracks["splits"]["count"], tracks["renames"]["count"], tracks["new"]) == (1, 1, 2, 3)
 
+	# every change carries the ids of the current tracks it would move
+	def track_id(artists, title):
+		return sqldb.get_track_id({"artists": artists, "title": title}, create_new=False)
+
 	merge, = tracks["merges"]["examples"]
 	assert merge["into"] == {"artists": ["Gamma"], "title": "Song"} and merge["existing"]
-	assert merge["from"] == [{"track": {"artists": ["Gamma"], "title": "Song (2009 Remaster)"}, "scrobbles": 1}]
+	assert merge["into_id"] == track_id(["Gamma"], "Song")
+	remaster = track_id(["Gamma"], "Song (2009 Remaster)")
+	assert merge["from"] == [{"track": {"artists": ["Gamma"], "title": "Song (2009 Remaster)"}, "track_id": remaster, "scrobbles": 1}]
+	assert merge["track_ids"] == [remaster]
 
-	assert tracks["reordered"]["examples"] == [{"track": {"artists": ["Omega", "Psi"], "title": "Order"}, "credited": ["Psi", "Omega"], "scrobbles": 1}]
+	order = track_id(["Omega", "Psi"], "Order")
+	assert tracks["reordered"]["examples"] == [{"track": {"artists": ["Omega", "Psi"], "title": "Order"}, "track_id": order, "track_ids": [order], "credited": ["Psi", "Omega"], "scrobbles": 1}]
 
 	split, = tracks["splits"]["examples"]
 	assert split["track"]["title"] == "Track X"
-	assert [i["track"]["title"] for i in split["into"]] == ["Track X", "Track X (feat. Epsilon)"]
+	assert split["track_ids"] == [track_id(["Delta"], "Track X")]
+	assert [(i["track"]["title"], i["track_id"]) for i in split["into"]] == [("Track X", split["track_id"]), ("Track X (feat. Epsilon)", None)]
 
-	assert {(r["track"]["title"], tuple(r["to"]["artists"]), tuple(r["changed"])) for r in tracks["renames"]["examples"]} == {
-		("Pair", ("Mu", "Nu"), ("artists",)),
-		("Tune", ("Zeta",), ("artists",)),
+	assert {(r["track"]["title"], tuple(r["to"]["artists"]), tuple(r["changed"]), tuple(r["track_ids"])) for r in tracks["renames"]["examples"]} == {
+		("Pair", ("Mu", "Nu"), ("artists",), (track_id(["Mu Nu"], "Pair"),)),
+		("Tune", ("Zeta",), ("artists",), (track_id(["Zeta Old"], "Tune"),)),
 	}
 
 

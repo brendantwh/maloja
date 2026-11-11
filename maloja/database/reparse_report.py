@@ -28,6 +28,7 @@ def _top(entries, examples, count=lambda e: e['scrobbles'], name=lambda e: ''):
 
 @sqldb.connection_provider
 def build_report(examples=10, dbconn=None):
+	# examples=None lists every change, each with the ids of the current tracks it moves (track_ids)
 	from . import rawscrobble_to_scrobbledict
 
 	# current state
@@ -149,8 +150,10 @@ def build_report(examples=10, dbconn=None):
 		if len(targets) > 1:
 			splits.append({
 				'track': tracks[track_id],
+				'track_id': track_id,
+				'track_ids': [track_id],
 				'scrobbles': sum(targets.values()),
-				'into': [{'track': display(k), 'scrobbles': n} for k, n in sorted(targets.items(), key=lambda kv: (-kv[1], _trackname(display(kv[0]))))]
+				'into': [{'track': display(k), 'track_id': key_to_track.get(k), 'scrobbles': n} for k, n in sorted(targets.items(), key=lambda kv: (-kv[1], _trackname(display(kv[0]))))]
 			})
 
 	merges, new_tracks = [], 0
@@ -162,9 +165,11 @@ def build_report(examples=10, dbconn=None):
 		if movers and (target is not None or len(movers) > 1):
 			merges.append({
 				'into': display(key),
+				'into_id': target,
 				'existing': target is not None,
+				'track_ids': sorted(movers),
 				'scrobbles': sum(sources[t] for t in movers),
-				'from': [{'track': tracks[t], 'scrobbles': sources[t]} for t in sorted(movers, key=lambda t: (-sources[t], _trackname(tracks[t])))]
+				'from': [{'track': tracks[t], 'track_id': t, 'scrobbles': sources[t]} for t in sorted(movers, key=lambda t: (-sources[t], _trackname(tracks[t])))]
 			})
 
 	renames = []
@@ -179,7 +184,7 @@ def build_report(examples=10, dbconn=None):
 			changed.append('title')
 		if key[1] != track_key[track_id][1]:
 			changed.append('artists')
-		renames.append({'track': tracks[track_id], 'to': key_display[key], 'changed': changed, 'scrobbles': n})
+		renames.append({'track': tracks[track_id], 'track_id': track_id, 'track_ids': [track_id], 'to': key_display[key], 'changed': changed, 'scrobbles': n})
 
 	# artists
 	def artist_kind(removed, added):
@@ -229,7 +234,7 @@ def build_report(examples=10, dbconn=None):
 				'count': len(reordered),
 				'scrobbles': sum(n for _, n in reordered.values()),
 				'examples': _top(
-					[{'track': tracks[t], 'credited': credited, 'scrobbles': n} for t, (credited, n) in reordered.items()],
+					[{'track': tracks[t], 'track_id': t, 'track_ids': [t], 'credited': credited, 'scrobbles': n} for t, (credited, n) in reordered.items()],
 					examples, name=lambda r: _trackname(r['track'])
 				)
 			},
