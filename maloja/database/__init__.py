@@ -313,6 +313,14 @@ def associate_albums_to_artist(target_id,source_ids,remove=False):
 
 	return result
 
+def get_duplicates(dbconn=None):
+	from . import duplicates
+	return duplicates.find_duplicates(dbconn=dbconn)
+
+def dismiss_duplicate(entity_type,ids):
+	from . import duplicates
+	duplicates.dismiss_duplicate(entity_type,ids)
+
 def get_aliases(dbconn=None):
 	return sqldb.list_aliases(dbconn=dbconn)
 

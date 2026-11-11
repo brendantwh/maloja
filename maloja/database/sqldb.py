@@ -164,6 +164,17 @@ DBTABLES = {
 		'extraargs':(
 			sql.UniqueConstraint('ruleset', 'rule_key'),
 		),'extrakwargs':{}
+	},
+	# duplicate suggestions you said no to (see duplicates.py)
+	'dismissed_duplicates':{
+		'columns':[
+			("entity_type",         sql.String,                                   {}), # artist or track
+			("member_ids",          sql.String,                                   {}), # json sorted list of ids
+			("created_at",          sql.Integer,                                  {})
+		],
+		'extraargs':(
+			sql.UniqueConstraint('entity_type', 'member_ids'),
+		),'extrakwargs':{}
 	}
 }
 
