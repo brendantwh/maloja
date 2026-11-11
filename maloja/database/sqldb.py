@@ -517,7 +517,8 @@ def remove_album(track_ids: list[int], dbconn=None) -> bool:
 def get_track_id(trackdict: TrackDict, create_new=True, update_album=False, dbconn=None) -> int | None:
 	ntitle = normalize_name(trackdict['title'])
 	artist_ids = [get_artist_id(a, create_new=create_new, dbconn=dbconn) for a in trackdict['artists']]
-	artist_ids = list(set(artist_ids))
+	# dict keeps the order the artists were given in (a set would sort them by id)
+	artist_ids = list(dict.fromkeys(artist_ids))
 
 	op = DB['tracks'].select().where(
 		DB['tracks'].c.title_normalized == ntitle
@@ -603,7 +604,8 @@ def get_artist_id(artistname: str, create_new=True, dbconn=None) -> int | None:
 def get_album_id(albumdict: AlbumDict, create_new=True, ignore_albumartists=False, dbconn=None) -> int | None:
 	ntitle = normalize_name(albumdict['albumtitle'])
 	artist_ids = [get_artist_id(a, dbconn=dbconn) for a in (albumdict.get('artists') or [])]
-	artist_ids = list(set(artist_ids))
+	# dict keeps the order the artists were given in (a set would sort them by id)
+	artist_ids = list(dict.fromkeys(artist_ids))
 
 	op = DB['albums'].select(
 #		DB['albums'].c.id

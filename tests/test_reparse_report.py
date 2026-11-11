@@ -33,22 +33,22 @@ CASES = [
 
 
 @pytest.fixture(scope="module")
-def report():
+def report(module_db):
+	_, mp = module_db
 	rulesfile = data_dir["rules"]("reparse_report_tests.tsv")
 	with open(rulesfile, "w") as f:
 		f.write("replaceartist\tZeta Old\tZeta\n")
-	with pytest.MonkeyPatch.context() as mp:
-		mp.setattr(database, "cla", CleanerAgent())
-		sqldb.add_scrobbles([
-			{
-				"time": 1000 + i,
-				"track": {"artists": artists, "title": title},
-				"origin": origin,
-				"rawscrobble": {"track_artists": raw_artists, "track_title": raw_title, "scrobble_time": 1000 + i} if raw_artists else None,
-			}
-			for i, (artists, title, raw_artists, raw_title, origin) in enumerate(CASES)
-		])
-		yield build_report()
+	mp.setattr(database, "cla", CleanerAgent())
+	sqldb.add_scrobbles([
+		{
+			"time": 1000 + i,
+			"track": {"artists": artists, "title": title},
+			"origin": origin,
+			"rawscrobble": {"track_artists": raw_artists, "track_title": raw_title, "scrobble_time": 1000 + i} if raw_artists else None,
+		}
+		for i, (artists, title, raw_artists, raw_title, origin) in enumerate(CASES)
+	])
+	yield build_report()
 	os.remove(rulesfile)
 
 
