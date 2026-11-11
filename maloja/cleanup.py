@@ -326,8 +326,10 @@ class CleanerAgent:
 		("TITLE_MERGE_MONO_STEREO", r"(\d{4} )?(mono|stereo)( (version|mix))?"),
 	]
 
-	def stripVariants(self,t):
-		patterns = [p for setting,p in self.title_variants if malojaconfig[setting]]
+	def stripVariants(self,t,patterns=None):
+		# the settings decide which variants are stripped, unless the patterns are given
+		if patterns is None:
+			patterns = [p for setting,p in self.title_variants if malojaconfig[setting]]
 		if not patterns:
 			return t
 
