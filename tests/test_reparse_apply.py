@@ -1,9 +1,10 @@
 import os
 import sqlite3
+import threading
 
 import pytest
 
-from maloja.database import rules, sqldb
+from maloja.database import reparse, rules, sqldb
 from maloja.database.reparse import apply_reparse
 from maloja.database.reparse_report import build_report
 
@@ -71,3 +72,29 @@ def test_apply_takes_a_snapshot_first(seeded):
 		titles = {row[0] for row in snapshot.execute("SELECT title FROM tracks")}
 	os.remove(result["snapshot"])
 	assert "Song (2009 Remaster)" in titles
+
+
+def test_background_job(seeded):
+	reparse.start_preview()
+	reparse.wait_for_job(5)
+	status = reparse.job_status(include_report=True)
+	assert status["state"] == "ready" and status["report"]["scrobbles"]["moved"] == 3
+	assert "report" not in reparse.job_status()
+
+	zeta = track_id(["Zeta Old"], "Tune")
+	reparse.start_apply(skip_track_ids=[zeta])
+	reparse.wait_for_job(5)
+	status = reparse.job_status()
+	os.remove(status["result"]["snapshot"])
+	assert (status["state"], status["result"]["moved"], status["result"]["skipped"], status["skip_track_ids"]) == ("done", 2, 1, [zeta])
+	assert status["progress"] == [7, 7]
+
+
+def test_only_one_job_at_a_time(seeded):
+	release = threading.Event()
+	reparse._start("applying", lambda: release.wait(5) and {"state": "done"})
+	with pytest.raises(reparse.JobRunning):
+		reparse.start_preview()
+	release.set()
+	reparse.wait_for_job(5)
+	assert reparse.job_status()["state"] == "done"
