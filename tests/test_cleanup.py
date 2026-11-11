@@ -158,6 +158,19 @@ def test_parse_rules_tsv():
 	assert errors == ["line 2: replaceartist can't be limited to an artist"]
 
 
+def test_explain_lists_fired_rules(agent_with_rules):
+	agent = agent_with_rules(
+		("replaceartist", "Old", "New"),
+		("replacetitle", "RED", "Red"),
+		("addartists", "Nobody", "Red", "Extra"),
+	)
+	result = agent.explain("Old", "RED")
+	assert (result["artists"], result["title"]) == (["New"], "Red")
+	assert [(r.type, r.fields) for r in result["rules"]] == [("replaceartist", ("Old", "New")), ("replacetitle", ("RED", "Red"))]
+	# nothing is recorded outside explain
+	assert agent.fullclean("Old", "RED", None) == (["New"], "Red", None)
+
+
 def test_scoped_album_rule(agent_with_rules):
 	agent = agent_with_rules(("replacealbumtitle", "Greatest Hits", "Greatest Hits (2001)", "artist=A"))
 	assert agent.fullclean("A", "Song", "Greatest Hits")[2] == "Greatest Hits (2001)"
