@@ -1,44 +1,110 @@
 import re
 import os
+import io
 import csv
+from dataclasses import dataclass
 
 from .pkg_global.conf import data_dir, malojaconfig
 
-# need to do this as a class so it can retain loaded settings from file
-# apparently this is not true
-# I'm dumb
+# rule types and how many columns each needs after the type
+RULE_COLUMNS = {
+	"notanartist": 1,
+	"belongtogether": 1,
+	"ignoreartist": 1,
+	"replacetitle": 2,
+	"replacealbumtitle": 2,
+	"replaceartist": 2,
+	"countas": 2,
+	"artistintitle": 2,
+	"fixartists": 2,
+	"addartists": 3,
+}
+
+
+@dataclass(frozen=True)
+class Rule:
+	type: str
+	fields: tuple
+	scope: str = None
+	id: int = None
+	source: str = None
+
+
+def parse_rules_tsv(text, source=None):
+	"""Parse rules in the TSV format (see rules.info). Returns (rules, errors)."""
+	rules, errors = [], []
+	for number, entry in enumerate(csv.reader(io.StringIO(text), delimiter="\t"), start=1):
+		# empty columns are dropped, so columns can be lined up with several tabs
+		entry = [col for col in entry if col]
+		if not entry or entry[0].startswith('#'):
+			continue
+		ruletype, rest = entry[0], entry[1:]
+		if ruletype not in RULE_COLUMNS:
+			errors.append(f"line {number}: unknown rule type {ruletype!r}")
+			continue
+		needed = RULE_COLUMNS[ruletype]
+		if len(rest) < needed:
+			errors.append(f"line {number}: {ruletype} needs {needed} columns, got {len(rest)}")
+			continue
+		# additional columns (often trailing comments) are ignored
+		rules.append(Rule(ruletype, tuple(rest[:needed]), source=source))
+	return rules, errors
+
+
+def read_rule_files(folder):
+	rules = []
+	try:
+		files = sorted(os.listdir(folder))
+	except FileNotFoundError:
+		return rules
+	for f in files:
+		if f.split('.')[-1].lower() != 'tsv': continue
+		with open(os.path.join(folder, f), 'r') as filed:
+			rules += parse_rules_tsv(filed.read(), source=f"file:{f}")[0]
+	return rules
+
+
+class RuleBook:
+	"""The rules in the shape the parser looks them up. Later rules win over earlier ones."""
+
+	def __init__(self, rules):
+		self.rules = list(rules)
+		of = lambda t: [r.fields for r in self.rules if r.type == t]
+		self.belongtogether = [f[0] for f in of("belongtogether")]
+		self.notanartist = [f[0] for f in of("notanartist")]
+		self.replacetitle = {f[0].lower(): f[1] for f in of("replacetitle")}
+		self.replacealbumtitle = {f[0].lower(): f[1] for f in of("replacealbumtitle")}
+		self.replaceartist = {f[0].lower(): f[1] for f in of("replaceartist")}
+		self.ignoreartist = [f[0].lower() for f in of("ignoreartist")]
+		self.addartists = {f[1].lower(): (f[0].lower(), f[2]) for f in of("addartists")}
+		self.fixartists = {f[1].lower(): f[0] for f in of("fixartists")}
+		self.artistintitle = {f[0].lower(): f[1] for f in of("artistintitle")}
+
+
 class CleanerAgent:
 
-	def __init__(self,known_artist=None):
+	def __init__(self, rules=None, rules_loader=None, known_artist=None):
 		# optional callback: is this exact name already a known artist? (see sqldb.is_known_artist)
 		self.known_artist = known_artist
-		self.updateRules()
+		# rules are either given, or loaded on first use (by default from the rule files)
+		self.rules_loader = rules_loader or (lambda: read_rule_files(data_dir["rules"]()))
+		self._book = None
+		if rules is not None:
+			self.set_rules(rules)
 
-	def updateRules(self):
+	def set_rules(self, rules):
+		# built completely before it's swapped in, so a parse running at the same time never sees half of it
+		self._book = RuleBook(rules)
 
-		rawrules = []
-		try:
-			for f in os.listdir(data_dir["rules"]()):
-				if f.split('.')[-1].lower() != 'tsv': continue
-				filepath = data_dir["rules"](f)
-				with open(filepath,'r') as filed:
-					reader = csv.reader(filed,delimiter="\t")
-					rawrules += [[col for col in entry if col] for entry in reader if len(entry)>0 and not entry[0].startswith('#')]
-		except FileNotFoundError:
-			pass
+	@property
+	def book(self):
+		if self._book is None:
+			self.set_rules(self.rules_loader())
+		return self._book
 
-		self.rules_belongtogether = [r[1] for r in rawrules if r[0]=="belongtogether"]
-		self.rules_notanartist = [r[1] for r in rawrules if r[0]=="notanartist"]
-		self.rules_replacetitle = {r[1].lower():r[2] for r in rawrules if r[0]=="replacetitle"}
-		self.rules_replacealbumtitle = {r[1].lower():r[2] for r in rawrules if r[0]=="replacealbumtitle"}
-		self.rules_replaceartist = {r[1].lower():r[2] for r in rawrules if r[0]=="replaceartist"}
-		self.rules_ignoreartist = [r[1].lower() for r in rawrules if r[0]=="ignoreartist"]
-		self.rules_addartists = {r[2].lower():(r[1].lower(),r[3]) for r in rawrules if r[0]=="addartists"}
-		self.rules_fixartists = {r[2].lower():r[1] for r in rawrules if r[0]=="fixartists"}
-		self.rules_artistintitle = {r[1].lower():r[2] for r in rawrules if r[0]=="artistintitle"}
-		#self.rules_regexartist = [[b,c] for [a,b,c,d] in raw if a=="regexartist"]
-		#self.rules_regextitle = [[b,c] for [a,b,c,d] in raw if a=="regextitle"]
-
+	@property
+	def rules(self):
+		return self.book.rules
 
 
 	def fullclean(self,artist,title,album):
@@ -49,14 +115,14 @@ class CleanerAgent:
 		if malojaconfig["TITLE_STRIP_FEAT"]:
 			title = stripped
 		artists += moreartists
-		if title.lower() in self.rules_addartists:
-			reqartists, allartists = self.rules_addartists[title.lower()]
+		if title.lower() in self.book.addartists:
+			reqartists, allartists = self.book.addartists[title.lower()]
 			reqartists = reqartists.split("␟")
 			allartists = allartists.split("␟")
 			if set(reqartists).issubset({a.lower() for a in artists}):
 				artists += allartists
-		elif title.lower() in self.rules_fixartists:
-			allartists = self.rules_fixartists[title.lower()]
+		elif title.lower() in self.book.fixartists:
+			allartists = self.book.fixartists[title.lower()]
 			allartists = allartists.split("␟")
 			if len({a.lower() for a in allartists} & {a.lower() for a in artists}) > 0:
 				artists = allartists
@@ -79,11 +145,6 @@ class CleanerAgent:
 		return s
 
 
-	# if an artist appears in any created rule, we can assume that artist is meant to exist and be spelled like that
-	def confirmedReal(self,a):
-		confirmed = self.rules_belongtogether + [self.rules_replaceartist[r] for r in self.rules_replaceartist]
-		return (a in confirmed)
-
 	#Delimiters used for extra artists, even when in the title field
 	#delimiters_feat = ["ft.","ft","feat.","feat","featuring","Ft.","Ft","Feat.","Feat","Featuring"]
 	delimiters_feat = malojaconfig["DELIMITERS_FEAT"]
@@ -103,22 +164,22 @@ class CleanerAgent:
 		if a.strip() in malojaconfig["INVALID_ARTISTS"]:
 			return []
 
-		if a.strip().lower() in self.rules_ignoreartist:
+		if a.strip().lower() in self.book.ignoreartist:
 			return []
 
 		if a.strip() == "":
 			return []
 
-		if a.strip() in self.rules_notanartist:
+		if a.strip() in self.book.notanartist:
 			return []
 
 		if " performing " in a.lower():
 			return self.parseArtists(re.split(" [Pp]erforming",a)[0])
 
-		if a.strip() in self.rules_belongtogether:
+		if a.strip() in self.book.belongtogether:
 			return [a.strip()]
-		if a.strip().lower() in self.rules_replaceartist:
-			return self.rules_replaceartist[a.strip().lower()].split("␟")
+		if a.strip().lower() in self.book.replaceartist:
+			return self.book.replaceartist[a.strip().lower()].split("␟")
 
 
 
@@ -174,8 +235,8 @@ class CleanerAgent:
 		return bool(self.known_artist and malojaconfig["ARTIST_KEEP_KNOWN"] and self.known_artist(a.strip()))
 
 	def parseTitle(self,t):
-		if t.strip().lower() in self.rules_replacetitle:
-			return self.rules_replacetitle[t.strip().lower()]
+		if t.strip().lower() in self.book.replacetitle:
+			return self.book.replacetitle[t.strip().lower()]
 
 		t = t.replace("[","(").replace("]",")")
 
@@ -267,13 +328,13 @@ class CleanerAgent:
 
 
 
-		for st in self.rules_artistintitle:
-			if st in title.lower(): artists += self.rules_artistintitle[st].split("␟")
+		for st in self.book.artistintitle:
+			if st in title.lower(): artists += self.book.artistintitle[st].split("␟")
 		return (title,artists)
 
 	def parseAlbumtitle(self,t):
-		if t.strip().lower() in self.rules_replacealbumtitle:
-			return self.rules_replacealbumtitle[t.strip().lower()]
+		if t.strip().lower() in self.book.replacealbumtitle:
+			return self.book.replacealbumtitle[t.strip().lower()]
 
 		t = t.replace("[","(").replace("]",")")
 
@@ -284,15 +345,3 @@ class CleanerAgent:
 		t = t.strip()
 		return t
 
-
-def flatten(lis):
-
-	newlist = []
-
-	for l in lis:
-		if isinstance(l, str):
-			newlist.append(l)
-		else:
-			newlist += l
-
-	return list(set(newlist))

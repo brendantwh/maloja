@@ -11,13 +11,13 @@ os.environ["MALOJA_SKIP_SETUP"] = "yes"
 
 import pytest
 
-from maloja.cleanup import CleanerAgent
-from maloja.pkg_global.conf import data_dir, malojaconfig
+from maloja.cleanup import CleanerAgent, parse_rules_tsv
+from maloja.pkg_global.conf import malojaconfig
 
 
 @pytest.fixture
 def agent():
-	return CleanerAgent()
+	return CleanerAgent(rules=[])
 
 
 @pytest.fixture
@@ -61,13 +61,9 @@ def module_db():
 
 @pytest.fixture
 def agent_with_rules():
-	rulesfile = data_dir["rules"]("tests.tsv")
-
 	def make(*rules):
-		with open(rulesfile, "w") as f:
-			f.writelines("\t".join(rule) + "\n" for rule in rules)
-		return CleanerAgent()
+		parsed, errors = parse_rules_tsv("".join("\t".join(rule) + "\n" for rule in rules))
+		assert not errors
+		return CleanerAgent(rules=parsed)
 
-	yield make
-	if os.path.exists(rulesfile):
-		os.remove(rulesfile)
+	return make
