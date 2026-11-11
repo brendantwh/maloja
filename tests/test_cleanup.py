@@ -116,6 +116,13 @@ def test_known_artists(settings, values, artists_in, artists_out):
 	assert artists == artists_out
 
 
+def test_parse_rules_tsv():
+	text = "# a comment\nreplacetitle\t\tRED\t\tRed\t# trailing comment\nreplacetitle\tonly one\nregexartist\ta\tb\n"
+	rules, errors = cleanup.parse_rules_tsv(text, source="file:x.tsv")
+	assert rules == [cleanup.Rule("replacetitle", ("RED", "Red"), source="file:x.tsv")]
+	assert errors == ["line 3: replacetitle needs 2 columns, got 1", "line 4: unknown rule type 'regexartist'"]
+
+
 def test_cleanup_compiles_without_warnings():
 	with open(cleanup.__file__) as f:
 		source = f.read()
