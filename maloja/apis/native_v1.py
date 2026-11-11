@@ -761,6 +761,7 @@ def import_rulemodule(**keys):
 	from ..database import rules
 	log(("Deactivating" if remove else "Activating") + " predefined rule set " + filename)
 	rules.set_ruleset_enabled(filename, not remove)
+	rules.reload_rules()
 
 
 
