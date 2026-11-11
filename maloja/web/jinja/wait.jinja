@@ -32,7 +32,7 @@
 			var status = response['db_status'];
 			console.log(response);
 			if (status['healthy'] && !status['rebuildinprogress']) {
-				window.location = "/admin_issues";
+				window.location = "/admin_overview";
 			}
 			pending = false;
 		}

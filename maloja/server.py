@@ -93,7 +93,7 @@ aliases = {
 	"admin": "admin_overview",
 	"manual": "admin_manual",
 	"setup": "admin_setup",
-	"issues": "admin_issues"
+	"issues": "admin_duplicates"
 }
 
 

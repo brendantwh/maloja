@@ -71,8 +71,6 @@ def waitfordb(func):
 
 
 
-ISSUES = {}
-
 from . import rules
 # the one parser for scrobbles, imports and reparsing, rules come from the database
 cla = CleanerAgent(rules_loader=rules.load_rules, known_artist=sqldb.is_known_artist)
