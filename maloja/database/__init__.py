@@ -73,7 +73,9 @@ def waitfordb(func):
 
 ISSUES = {}
 
-cla = CleanerAgent(known_artist=sqldb.is_known_artist)
+from . import rules
+# the one parser for scrobbles, imports and reparsing, rules come from the database
+cla = CleanerAgent(rules_loader=rules.load_rules, known_artist=sqldb.is_known_artist)
 
 
 
@@ -947,39 +949,12 @@ def get_featured(dbconn=None):
 	return result
 
 def get_predefined_rulesets(dbconn=None):
-	validchars = "-_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-
-	rulesets = []
-
-	for f in os.listdir(data_dir['rules']("predefined")):
-		if f.endswith(".tsv"):
-
-			rawf = f.replace(".tsv","")
-			valid = all(char in validchars for char in rawf)
-			if not valid: continue
-			if "_" not in rawf: continue
-
-			try:
-				with open(data_dir['rules']("predefined",f)) as tsvfile:
-					line1 = tsvfile.readline()
-					line2 = tsvfile.readline()
-
-					if "# NAME: " in line1:
-						name = line1.replace("# NAME: ","")
-					else: name = rawf.split("_")[1]
-					desc = line2.replace("# DESC: ","") if "# DESC: " in line2 else ""
-					author = rawf.split("_")[0]
-			except Exception:
-				continue
-
-			ruleset = {"file":rawf}
-			rulesets.append(ruleset)
-			ruleset["active"] = bool(os.path.exists(data_dir['rules'](f)))
-			ruleset["name"] = name
-			ruleset["author"] = author
-			ruleset["desc"] = desc
-
-	return rulesets
+	states = rules.get_ruleset_states(dbconn=dbconn)
+	pending = {name for kind, name, _ in rules.pending_files() if kind == 'set'}
+	return [
+		{**ruleset, "active": states.get(ruleset["file"], False) or ruleset["file"] in pending}
+		for ruleset in rules.list_ruleset_files()
+	]
 
 
 ####
@@ -998,7 +973,8 @@ def start_db():
 	upgrade.upgrade_db(sqldb.add_scrobbles)
 	upgrade.parse_old_albums()
 
-	# Load temporary tables
+	# rule files waiting in the rules folder go into the database, then the rules are loaded
+	cla.set_rules(rules.load_rules(import_files=True))
 	from . import associated
 	associated.load_associated_rules()
 
