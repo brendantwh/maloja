@@ -588,6 +588,37 @@ def add_alias(entity_type: str, name: str, target_id: int, artists=None, source=
 	return True
 
 
+@connection_provider
+def list_aliases(dbconn=None):
+	"""All aliases, newest first, with the entity they point at (None if it's gone)."""
+	rows = dbconn.execute(DB['aliases'].select().order_by(DB['aliases'].c.created_at.desc(), DB['aliases'].c.id.desc())).all()
+	getters = {'artist': get_artist, 'track': get_track, 'album': get_album}
+	result = []
+	for row in rows:
+		try:
+			target = getters[row.entity_type](row.target_id, dbconn=dbconn)
+		except IndexError:
+			target = None
+		result.append({
+			'id': row.id,
+			'entity_type': row.entity_type,
+			'name': row.name_normalized,
+			'artists': json.loads(row.artists_normalized) if row.artists_normalized else [],
+			'target_id': row.target_id,
+			'target': target,
+			'created_at': row.created_at,
+			'source': row.source,
+		})
+	return result
+
+
+@connection_provider
+def delete_alias_by_id(alias_id: int, dbconn=None) -> bool:
+	result = dbconn.execute(DB['aliases'].delete().where(DB['aliases'].c.id == int(alias_id)))
+	forget_known_artists()
+	return result.rowcount > 0
+
+
 def remove_alias(entity_type: str, name: str, artists=None, dbconn=None):
 	# an entity now really has this name, so it no longer needs to be an alias
 	conditions = [

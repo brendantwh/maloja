@@ -313,6 +313,19 @@ def associate_albums_to_artist(target_id,source_ids,remove=False):
 
 	return result
 
+def get_aliases(dbconn=None):
+	return sqldb.list_aliases(dbconn=dbconn)
+
+@waitfordb
+def delete_alias(alias_id):
+	result = sqldb.delete_alias_by_id(alias_id)
+	if result:
+		log(f"Deleted alias {alias_id}")
+	# lookups through this alias are cached
+	dbcache.invalidate_entity_cache()
+	dbcache.invalidate_caches()
+	return result
+
 @waitfordb
 def associate_tracks_to_artist(target_id,source_ids,remove=False):
 	sources = [sqldb.get_track(id) for id in source_ids]

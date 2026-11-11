@@ -1052,6 +1052,24 @@ def edit_album(id,albumtitle):
 	}
 
 
+@api.get("aliases")
+@auth.authenticated_function(api=True)
+@catch_exceptions
+def get_aliases(**keys):
+	"""Internal Use Only"""
+	return {"aliases":database.get_aliases()}
+
+
+@api.post("delete_alias")
+@auth.authenticated_function(api=True)
+@catch_exceptions
+def delete_alias(id):
+	"""Internal Use Only"""
+	if not database.delete_alias(id):
+		raise database.exceptions.EntityDoesNotExist({'alias':id})
+	return {"status":"success","desc":"Alias deleted! Future scrobbles with that name are no longer mapped."}
+
+
 @api.post("merge_tracks")
 @auth.authenticated_function(api=True)
 @catch_exceptions
