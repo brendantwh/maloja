@@ -34,6 +34,8 @@ CASES = [
 	# old spellings that aliases now map to the stored entities
 	(["Iota"], "Hymn", ["Iota Old"], "Hymn", "client:test"),
 	(["Kappa"], "Anthem", ["Kappa"], "Anthem (feat. Lambda)", "client:test"),
+	# stored in alphabetical order, credited the other way round
+	(["Omega", "Psi"], "Order", ["Psi & Omega"], "Order", "client:test"),
 ]
 
 
@@ -61,7 +63,7 @@ def report(module_db):
 
 def test_coverage(report):
 	scrobbles = report["scrobbles"]
-	assert (scrobbles["total"], scrobbles["reparsed"], scrobbles["unchanged"], scrobbles["moved"]) == (13, 11, 7, 4)
+	assert (scrobbles["total"], scrobbles["reparsed"], scrobbles["unchanged"], scrobbles["moved"]) == (14, 12, 8, 4)
 	assert scrobbles["no_raw"] == {"total": 1, "by_origin": {"import:lastfm": 1}}
 	assert (scrobbles["discarded"]["count"], scrobbles["errors"]["count"]) == (1, 0)
 
@@ -73,6 +75,8 @@ def test_track_changes(report):
 	merge, = tracks["merges"]["examples"]
 	assert merge["into"] == {"artists": ["Gamma"], "title": "Song"} and merge["existing"]
 	assert merge["from"] == [{"track": {"artists": ["Gamma"], "title": "Song (2009 Remaster)"}, "scrobbles": 1}]
+
+	assert tracks["reordered"]["examples"] == [{"track": {"artists": ["Omega", "Psi"], "title": "Order"}, "credited": ["Psi", "Omega"], "scrobbles": 1}]
 
 	split, = tracks["splits"]["examples"]
 	assert split["track"]["title"] == "Track X"

@@ -80,6 +80,7 @@ def build_report(examples=10, dbconn=None):
 	flows = defaultdict(Counter)    # current track id -> new identity -> scrobbles
 	inflows = defaultdict(Counter)  # new identity -> current track id -> scrobbles
 	artist_changes = Counter()      # (removed names, added names) -> scrobbles
+	reordered = {}                  # track id -> [credited order, scrobbles]
 	artists_before, artists_after = Counter(), Counter()
 
 	op = sql.select(
@@ -127,6 +128,10 @@ def build_report(examples=10, dbconn=None):
 
 		if new_key == old_key:
 			unchanged += 1
+			# same artists, but maybe credited in another order than the track shows them
+			credited = list(dict.fromkeys(resolve_artist(a) for a in newtrack['artists']))
+			if set(credited) == old_artists and credited != [normalize_name(a) for a in tracks[row.track_id]['artists']]:
+				reordered.setdefault(row.track_id, [[artist_display[n] for n in credited], 0])[1] += 1
 			continue
 		moved += 1
 		old_names = {normalize_name(a): a for a in tracks[row.track_id]['artists']}
@@ -220,6 +225,14 @@ def build_report(examples=10, dbconn=None):
 			'splits': {'count': len(splits), 'scrobbles': sum(s['scrobbles'] for s in splits), 'examples': _top(splits, examples, name=lambda s: _trackname(s['track']))},
 			'renames': {'count': len(renames), 'scrobbles': sum(r['scrobbles'] for r in renames), 'examples': _top(renames, examples, name=lambda r: _trackname(r['track']))},
 			'new': new_tracks,
+			'reordered': {
+				'count': len(reordered),
+				'scrobbles': sum(n for _, n in reordered.values()),
+				'examples': _top(
+					[{'track': tracks[t], 'credited': credited, 'scrobbles': n} for t, (credited, n) in reordered.items()],
+					examples, name=lambda r: _trackname(r['track'])
+				)
+			},
 		},
 		'artists': {
 			'changes': {
@@ -230,5 +243,8 @@ def build_report(examples=10, dbconn=None):
 			'vanishing': {'count': len(vanishing), 'examples': _top(vanishing, examples, name=lambda v: v['artist'])},
 			'new': {'count': len(new_artists), 'examples': _top(new_artists, examples, name=lambda v: v['artist'])},
 		},
-		'notes': ['Albums are not compared.'],
+		'notes': [
+			'Albums are not compared.',
+			'Reordered tracks keep their stored artist order, only new tracks are stored in credited order.'
+		],
 	}
