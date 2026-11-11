@@ -58,8 +58,10 @@ class CleanerAgent:
 			allartists = allartists.split("␟")
 			if len({a.lower() for a in allartists} & {a.lower() for a in artists}) > 0:
 				artists = allartists
-		artists = list(set(artists))
-		artists.sort()
+		# main artist first, in the order they were credited
+		artists = list(dict.fromkeys(artists))
+		if not malojaconfig["ARTIST_CREDIT_ORDER"]:
+			artists.sort()
 
 		if album is not None:
 			album = self.parseAlbumtitle(album)
@@ -214,11 +216,16 @@ class CleanerAgent:
 		# words like "with" are only a delimiter in brackets, e.g. Spotify's "One Kiss (with Dua Lipa)"
 		for delimiter in malojaconfig["DELIMITERS_FEAT_TITLE"]:
 			patterns.append(r" [\(\[]" + re.escape(delimiter) + r" (.*?)[\)\]]")
+		original = title
+		found = []
 		for pattern in patterns:
 			matches = re.finditer(pattern,title,flags=re.IGNORECASE)
 			for match in matches:
 				title = match.re.sub('',match.string) # Remove matched part
-				artists += self.parseArtists(match.group(1)) # Parse matched artist string
+				found.append((original.find(match.group(0)),self.parseArtists(match.group(1)))) # Parse matched artist string
+		# credit order: as they appear in the title, not in the order of the patterns
+		for _,matched in sorted(found,key=lambda f: f[0]):
+			artists += matched
 
 
 

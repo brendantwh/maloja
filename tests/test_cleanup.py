@@ -11,10 +11,10 @@ PARSER_CASES = [
 	pytest.param("A feat. B", "Song", ["A", "B"], "Song", id="split-feat"),
 	pytest.param("A & B", "Song", ["A", "B"], "Song", id="split-ampersand"),
 	pytest.param("A; B", "Song", ["A", "B"], "Song", id="split-formal"),
-	pytest.param("Simon & Garfunkel", "The Sound of Silence", ["Garfunkel", "Simon"], "The Sound of Silence", id="char-band-ampersand"),
+	pytest.param("Simon & Garfunkel", "The Sound of Silence", ["Simon", "Garfunkel"], "The Sound of Silence", id="char-band-ampersand"),
 	pytest.param("AC/DC", "Back In Black", ["AC", "DC"], "Back In Black", id="char-band-slash"),
 	pytest.param("Lady Gaga, Bradley Cooper", "Shallow", ["Lady Gaga, Bradley Cooper"], "Shallow", id="char-comma"),
-	pytest.param("B & A", "Song", ["A", "B"], "Song", id="char-alphabetical-order"),
+	pytest.param("B & A", "Song", ["B", "A"], "Song", id="credit-order"),
 	pytest.param("Daft Punk", "Get Lucky (feat. Pharrell Williams)", ["Daft Punk", "Pharrell Williams"], "Get Lucky (feat. Pharrell Williams)", id="title-feat-kept"),
 	pytest.param("Calvin Harris", "One Kiss (with Dua Lipa)", ["Calvin Harris", "Dua Lipa"], "One Kiss (with Dua Lipa)", id="title-with"),
 	pytest.param("A", "Dancing with Myself", ["A"], "Dancing with Myself", id="title-with-bare-kept"),
@@ -49,6 +49,7 @@ SETTINGS_CASES = [
 	pytest.param({"TITLE_MERGE_MONO_STEREO": False}, "A", "Song - Mono", ["A"], "Song - Mono", id="mono-stereo-off"),
 	pytest.param({"TITLE_STRIP_FEAT": True}, "Daft Punk", "Get Lucky (feat. Pharrell Williams)", ["Daft Punk", "Pharrell Williams"], "Get Lucky", id="strip-feat-on"),
 	pytest.param({"TITLE_STRIP_FEAT": True}, "A", "Song (with B) - feat. C", ["A", "B", "C"], "Song", id="strip-feat-on-with-and-dash"),
+	pytest.param({"ARTIST_CREDIT_ORDER": False}, "B & A", "Song", ["A", "B"], "Song", id="credit-order-off"),
 ]
 
 
@@ -79,7 +80,7 @@ RULES_CASES = [
 	pytest.param(
 		# fixartists is keyed by title alone
 		[("fixartists", "Main␟Guest", "Collab Song")],
-		"Main", "Collab Song", ["Guest", "Main"], "Collab Song",
+		"Main", "Collab Song", ["Main", "Guest"], "Collab Song",
 		id="fixartists-by-title",
 	),
 ]

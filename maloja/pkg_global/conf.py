@@ -208,6 +208,7 @@ malojaconfig = Configuration(
 			"title_merge_remasters":(tp.Boolean(),								"Merge Remasters",				True,																						"Remove remaster tags like '(2011 Remaster)' or ' - Remastered 2009' so remasters count as the original track"),
 			"title_merge_edits":(tp.Boolean(),									"Merge Radio and Single Edits",	True,																						"Remove tags like ' - Radio Edit' or '(Single Version)' so edits count as the original track"),
 			"title_merge_mono_stereo":(tp.Boolean(),							"Merge Mono and Stereo Versions",True,																						"Remove tags like ' - Mono' or '(2009 Stereo Mix)' so mono and stereo versions count as the original track"),
+			"artist_credit_order":(tp.Boolean(),								"Keep Credited Artist Order",	True,																						"Keep artists in the order they were credited, main artist first. When off, artists are sorted alphabetically"),
 			"delimiters_feat":(tp.Set(tp.String()),								"Featuring Delimiters",			["ft.","ft","feat.","feat","featuring"],													"Delimiters used for extra artists, even when in the title field"),
 			"delimiters_feat_title":(tp.Set(tp.String()),						"Title-only Featuring Delimiters",["with"],																					"Delimiters for extra artists that only count in brackets in the title, like (with X)"),
 			"delimiters_informal":(tp.Set(tp.String()),							"Informal Delimiters",			["vs.","vs","&"],																			"Delimiters in informal artist strings with spaces expected around them"),
