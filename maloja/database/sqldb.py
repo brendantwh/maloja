@@ -624,6 +624,44 @@ def list_aliases(dbconn=None):
 
 
 @connection_provider
+def export_aliases(dbconn=None):
+	# targets by name, ids mean nothing in another database
+	result = []
+	for alias in list_aliases(dbconn=dbconn):
+		target = alias['target']
+		if target is None:
+			continue
+		if alias['entity_type'] == 'track':
+			target = {'title': target['title'], 'artists': target['artists']}
+		elif alias['entity_type'] == 'album':
+			target = {'albumtitle': target['albumtitle'], 'artists': target['artists']}
+		result.append({k: alias[k] for k in ('entity_type', 'name', 'artists', 'source', 'created_at')} | {'target': target})
+	return result
+
+
+@connection_provider
+def import_aliases(aliases, dbconn=None):
+	"""Aliases whose target doesn't exist here are skipped. Returns (imported, skipped)."""
+	lookups = {
+		'artist': lambda t: get_artist_id(t, create_new=False, dbconn=dbconn),
+		'track': lambda t: get_track_id(t, create_new=False, dbconn=dbconn),
+		'album': lambda t: get_album_id(t, create_new=False, dbconn=dbconn),
+	}
+	imported, skipped = 0, 0
+	for alias in aliases:
+		try:
+			target_id = lookups[alias['entity_type']](alias['target'])
+		except (KeyError, TypeError):
+			target_id = None
+		if target_id is None:
+			skipped += 1
+			continue
+		artists = alias['artists'] if alias['entity_type'] != 'artist' else None
+		imported += add_alias(alias['entity_type'], alias['name'], target_id, artists=artists, source=alias.get('source'), dbconn=dbconn)
+	return imported, skipped
+
+
+@connection_provider
 def delete_alias_by_id(alias_id: int, dbconn=None) -> bool:
 	result = dbconn.execute(DB['aliases'].delete().where(DB['aliases'].c.id == int(alias_id)))
 	forget_known_artists()
