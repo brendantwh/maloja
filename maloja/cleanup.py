@@ -21,6 +21,15 @@ RULE_COLUMNS = {
 }
 
 
+# rules that can be limited to an artist ("artist=Name" column in a rule file)
+SCOPABLE = {"replacetitle", "replacealbumtitle", "addartists", "fixartists", "artistintitle"}
+SCOPE_PREFIX = "artist="
+# the column a rule is matched by (the first one, unless listed here)
+MATCH_COLUMN = {"addartists": 1, "fixartists": 1}
+# these match the exact spelling, all others ignore case
+CASE_SENSITIVE = {"belongtogether", "notanartist"}
+
+
 @dataclass(frozen=True)
 class Rule:
 	type: str
@@ -46,8 +55,12 @@ def parse_rules_tsv(text, source=None):
 		if len(rest) < needed:
 			errors.append(f"line {number}: {ruletype} needs {needed} columns, got {len(rest)}")
 			continue
-		# additional columns (often trailing comments) are ignored
-		rules.append(Rule(ruletype, tuple(rest[:needed]), source=source))
+		# additional columns (often trailing comments) are ignored, except for the artist scope
+		scopes = [col[len(SCOPE_PREFIX):].strip() for col in rest[needed:] if col.startswith(SCOPE_PREFIX)]
+		if scopes and ruletype not in SCOPABLE:
+			errors.append(f"line {number}: {ruletype} can't be limited to an artist")
+			continue
+		rules.append(Rule(ruletype, tuple(rest[:needed]), scopes[0] if scopes else None, source=source))
 	return rules, errors
 
 
@@ -65,20 +78,40 @@ def read_rule_files(folder):
 
 
 class RuleBook:
-	"""The rules in the shape the parser looks them up. Later rules win over earlier ones."""
+	"""The rules in the shape the parser looks them up.
+	Later rules win over earlier ones, and a rule limited to an artist wins over one that isn't."""
 
 	def __init__(self, rules):
 		self.rules = list(rules)
-		of = lambda t: [r.fields for r in self.rules if r.type == t]
-		self.belongtogether = [f[0] for f in of("belongtogether")]
-		self.notanartist = [f[0] for f in of("notanartist")]
-		self.replacetitle = {f[0].lower(): f[1] for f in of("replacetitle")}
-		self.replacealbumtitle = {f[0].lower(): f[1] for f in of("replacealbumtitle")}
-		self.replaceartist = {f[0].lower(): f[1] for f in of("replaceartist")}
-		self.ignoreartist = [f[0].lower() for f in of("ignoreartist")]
-		self.addartists = {f[1].lower(): (f[0].lower(), f[2]) for f in of("addartists")}
-		self.fixartists = {f[1].lower(): f[0] for f in of("fixartists")}
-		self.artistintitle = {f[0].lower(): f[1] for f in of("artistintitle")}
+		self.tables = {}  # type -> {(scope, match): rule}
+		for rule in self.rules:
+			scope = rule.scope.casefold() if rule.scope else None
+			self.tables.setdefault(rule.type, {})[(scope, self.matchkey(rule.type, rule.fields[MATCH_COLUMN.get(rule.type, 0)]))] = rule
+
+	@staticmethod
+	def matchkey(ruletype, value):
+		return value if ruletype in CASE_SENSITIVE else value.lower()
+
+	def find(self, ruletype, value, artists=()):
+		"""The rule for this value, preferring one limited to the first matching artist."""
+		table = self.tables.get(ruletype, {})
+		key = self.matchkey(ruletype, value)
+		for artist in artists:
+			rule = table.get((artist.casefold(), key))
+			if rule:
+				return rule
+		return table.get((None, key))
+
+	def all(self, ruletype, artists=()):
+		"""All rules of a type that apply with these artists, one per match value."""
+		scopes = [a.casefold() for a in artists]
+		found = {}
+		for (scope, key), rule in self.tables.get(ruletype, {}).items():
+			if scope is None:
+				found.setdefault(key, rule)
+			elif scope in scopes:
+				found[key] = rule
+		return list(found.values())
 
 
 class CleanerAgent:
@@ -109,20 +142,22 @@ class CleanerAgent:
 
 	def fullclean(self,artist,title,album):
 		artists = self.parseArtists(self.removespecial(artist))
-		title = self.parseTitle(self.removespecial(title))
-		(stripped,moreartists) = self.parseTitleForArtists(title)
+		title = self.parseTitle(self.removespecial(title),artists)
+		(stripped,moreartists) = self.parseTitleForArtists(title,artists)
 		# off by default: the full title, including "(feat. X)", is kept on purpose
 		if malojaconfig["TITLE_STRIP_FEAT"]:
 			title = stripped
 		artists += moreartists
-		if title.lower() in self.book.addartists:
-			reqartists, allartists = self.book.addartists[title.lower()]
-			reqartists = reqartists.split("␟")
+		addrule = self.book.find("addartists",title,artists)
+		fixrule = self.book.find("fixartists",title,artists)
+		if addrule:
+			reqartists, _, allartists = addrule.fields
+			reqartists = reqartists.lower().split("␟")
 			allartists = allartists.split("␟")
 			if set(reqartists).issubset({a.lower() for a in artists}):
 				artists += allartists
-		elif title.lower() in self.book.fixartists:
-			allartists = self.book.fixartists[title.lower()]
+		elif fixrule:
+			allartists = fixrule.fields[0]
 			allartists = allartists.split("␟")
 			if len({a.lower() for a in allartists} & {a.lower() for a in artists}) > 0:
 				artists = allartists
@@ -132,7 +167,7 @@ class CleanerAgent:
 			artists.sort()
 
 		if album is not None:
-			album = self.parseAlbumtitle(album)
+			album = self.parseAlbumtitle(album,artists)
 			album = album.strip()
 
 		return (artists,title.strip(),album)
@@ -164,22 +199,23 @@ class CleanerAgent:
 		if a.strip() in malojaconfig["INVALID_ARTISTS"]:
 			return []
 
-		if a.strip().lower() in self.book.ignoreartist:
+		if self.book.find("ignoreartist",a.strip()):
 			return []
 
 		if a.strip() == "":
 			return []
 
-		if a.strip() in self.book.notanartist:
+		if self.book.find("notanartist",a.strip()):
 			return []
 
 		if " performing " in a.lower():
 			return self.parseArtists(re.split(" [Pp]erforming",a)[0])
 
-		if a.strip() in self.book.belongtogether:
+		if self.book.find("belongtogether",a.strip()):
 			return [a.strip()]
-		if a.strip().lower() in self.book.replaceartist:
-			return self.book.replaceartist[a.strip().lower()].split("␟")
+		replacement = self.book.find("replaceartist",a.strip())
+		if replacement:
+			return replacement.fields[1].split("␟")
 
 
 
@@ -234,9 +270,10 @@ class CleanerAgent:
 	def isKnownArtist(self,a):
 		return bool(self.known_artist and malojaconfig["ARTIST_KEEP_KNOWN"] and self.known_artist(a.strip()))
 
-	def parseTitle(self,t):
-		if t.strip().lower() in self.book.replacetitle:
-			return self.book.replacetitle[t.strip().lower()]
+	def parseTitle(self,t,artists=()):
+		replacement = self.book.find("replacetitle",t.strip(),artists)
+		if replacement:
+			return replacement.fields[1]
 
 		t = t.replace("[","(").replace("]",")")
 
@@ -288,7 +325,7 @@ class CleanerAgent:
 
 		return stripped if stripped.strip() else t
 
-	def parseTitleForArtists(self,title):
+	def parseTitleForArtists(self,title,known=()):
 		artists = []
 		patterns = []
 		for delimiter in malojaconfig["DELIMITERS_FEAT"]:
@@ -328,13 +365,14 @@ class CleanerAgent:
 
 
 
-		for st in self.book.artistintitle:
-			if st in title.lower(): artists += self.book.artistintitle[st].split("␟")
+		for rule in self.book.all("artistintitle",known):
+			if rule.fields[0].lower() in title.lower(): artists += rule.fields[1].split("␟")
 		return (title,artists)
 
-	def parseAlbumtitle(self,t):
-		if t.strip().lower() in self.book.replacealbumtitle:
-			return self.book.replacealbumtitle[t.strip().lower()]
+	def parseAlbumtitle(self,t,artists=()):
+		replacement = self.book.find("replacealbumtitle",t.strip(),artists)
+		if replacement:
+			return replacement.fields[1]
 
 		t = t.replace("[","(").replace("]",")")
 

@@ -174,7 +174,7 @@ def rawscrobble_to_scrobbledict(rawscrobble, fix=True, client=None):
 		if scrobbleinfo.get('album_artists'):
 			scrobbleinfo['album_artists'] = cla.parseArtists(scrobbleinfo['album_artists'])
 		if scrobbleinfo.get("album_title"):
-			scrobbleinfo['album_title'] = cla.parseAlbumtitle(scrobbleinfo['album_title'])
+			scrobbleinfo['album_title'] = cla.parseAlbumtitle(scrobbleinfo['album_title'],scrobbleinfo.get('album_artists') or scrobbleinfo['track_artists'])
 	scrobbleinfo['scrobble_time'] = scrobbleinfo.get('scrobble_time') or int(datetime.datetime.now(tz=datetime.timezone.utc).timestamp())
 
 	# if we send [] as albumartists, it means various
