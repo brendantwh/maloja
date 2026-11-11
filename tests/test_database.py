@@ -45,6 +45,42 @@ def test_aliases_can_be_switched_off(db, settings):
 	assert sqldb.get_artist_id("Old Name") != sqldb.get_artist_id("New Name")
 
 
+def aliases():
+	with sqldb.engine.connect() as conn:
+		return {(row.entity_type, row.name_normalized): row.target_id for row in conn.execute(sqldb.DB["aliases"].select())}
+
+
+def test_renames_and_merges_record_aliases(db):
+	scrobble(1, ["Beyonce Knowles"], "Halo", album={"albumtitle": "I Am... Sasha Fierce", "artists": ["Beyonce Knowles"]})
+	db.edit_artist(sqldb.get_artist_id("Beyonce Knowles"), "Beyoncé")
+	db.edit_album(sqldb.get_album_id({"albumtitle": "I Am... Sasha Fierce", "artists": ["Beyoncé"]}), {"albumtitle": "I Am Sasha Fierce"})
+	lucky = scrobble(2, ["Daft Punk"], "Get Lucky")
+	feat = scrobble(3, ["Daft Punk", "Pharrell Williams"], "Get Lucky (feat. Pharrell Williams)")
+	db.merge_tracks(sqldb.get_track_id(lucky), [sqldb.get_track_id(feat)])
+
+	assert scrobble(4, ["Beyonce Knowles"], "Halo")["artists"] == ["Beyoncé"]
+	assert scrobble(5, ["Beyoncé"], "Halo", album={"albumtitle": "I Am... Sasha Fierce", "artists": ["Beyoncé"]})["album"]["albumtitle"] == "I Am Sasha Fierce"
+	assert scrobble(6, ["Daft Punk", "Pharrell Williams"], "Get Lucky (feat. Pharrell Williams)") == lucky
+
+
+def test_aliases_follow_later_merges_and_renames(db):
+	for i, name in enumerate(["A", "B", "C"]):
+		scrobble(i, [name], f"Song {name}")
+	db.merge_artists(sqldb.get_artist_id("B"), [sqldb.get_artist_id("A")])
+	db.merge_artists(sqldb.get_artist_id("C"), [sqldb.get_artist_id("B")])
+	assert aliases() == {("artist", "a"): sqldb.get_artist_id("C"), ("artist", "b"): sqldb.get_artist_id("C")}
+	# naming an artist like an alias drops the alias
+	db.edit_artist(sqldb.get_artist_id("C"), "A")
+	assert set(aliases()) == {("artist", "b"), ("artist", "c")}
+
+
+def test_no_aliases_recorded_when_switched_off(db, settings):
+	settings(LEARN_ALIASES=False)
+	scrobble(1, ["Old"], "Song")
+	db.edit_artist(sqldb.get_artist_id("Old"), "New")
+	assert aliases() == {}
+
+
 def test_clean_db_keeps_aliases_of_existing_entities(db):
 	scrobble(1, ["Kept"], "Song")
 	sqldb.add_alias("artist", "Kept Old", sqldb.get_artist_id("Kept"))

@@ -533,6 +533,8 @@ def alias_artists_key(artists):
 
 @connection_provider
 def add_alias(entity_type: str, name: str, target_id: int, artists=None, source=None, dbconn=None) -> bool:
+	if not malojaconfig['LEARN_ALIASES']:
+		return False
 	# the same old name recorded again points at the newest target
 	values = {
 		'entity_type': entity_type,
@@ -548,6 +550,25 @@ def add_alias(entity_type: str, name: str, target_id: int, artists=None, source=
 	)
 	dbconn.execute(op)
 	return True
+
+
+def remove_alias(entity_type: str, name: str, artists=None, dbconn=None):
+	# an entity now really has this name, so it no longer needs to be an alias
+	conditions = [
+		DB['aliases'].c.entity_type == entity_type,
+		DB['aliases'].c.name_normalized == normalize_name(name)
+	]
+	if artists is not None:
+		conditions.append(DB['aliases'].c.artists_normalized == alias_artists_key(artists))
+	dbconn.execute(DB['aliases'].delete().where(*conditions))
+
+
+def repoint_aliases(entity_type: str, target_id: int, source_ids: list[int], dbconn=None):
+	# aliases of merged entities move along, also when the merge happens automatically
+	dbconn.execute(DB['aliases'].update().where(
+		DB['aliases'].c.entity_type == entity_type,
+		DB['aliases'].c.target_id.in_(source_ids)
+	).values(target_id=target_id))
 
 
 def find_alias(entity_type: str, nname: str, artist_ids=None, dbconn=None) -> int | None:
@@ -752,7 +773,7 @@ def edit_scrobble(scrobble_id: int, scrobbleupdatedict: dict, dbconn=None) -> bo
 
 # edit function only for primary db information (not linked fields)
 @connection_provider
-def edit_artist(artist_id: int, artistupdatedict: str, dbconn=None) -> bool:
+def edit_artist(artist_id: int, artistupdatedict: str, record_alias=False, dbconn=None) -> bool:
 
 	artist = get_artist(artist_id)
 	changedartist = artistupdatedict # well
@@ -760,7 +781,7 @@ def edit_artist(artist_id: int, artistupdatedict: str, dbconn=None) -> bool:
 	dbentry = artist_dict_to_db(artistupdatedict, dbconn=dbconn)
 	dbentry = {k: v for k, v in dbentry.items() if v}
 
-	existing_artist_id = get_artist_id(changedartist, create_new=False, dbconn=dbconn)
+	existing_artist_id = get_artist_id(changedartist, create_new=False, use_aliases=False, dbconn=dbconn)
 	if existing_artist_id not in (None, artist_id):
 		raise exc.ArtistExists(changedartist)
 
@@ -770,12 +791,16 @@ def edit_artist(artist_id: int, artistupdatedict: str, dbconn=None) -> bool:
 		**dbentry
 	)
 	result = dbconn.execute(op)
+
+	remove_alias('artist', changedartist, dbconn=dbconn)
+	if record_alias and normalize_name(artist) != normalize_name(changedartist):
+		add_alias('artist', artist, artist_id, source='rename', dbconn=dbconn)
 	return True
 
 
 # edit function only for primary db information (not linked fields)
 @connection_provider
-def edit_track(track_id: int, trackupdatedict: dict, dbconn=None) -> bool:
+def edit_track(track_id: int, trackupdatedict: dict, record_alias=False, dbconn=None) -> bool:
 
 	track = get_track(track_id, dbconn=dbconn)
 	changedtrack: TrackDict = {**track, **trackupdatedict}
@@ -783,7 +808,7 @@ def edit_track(track_id: int, trackupdatedict: dict, dbconn=None) -> bool:
 	dbentry = track_dict_to_db(trackupdatedict, dbconn=dbconn)
 	dbentry = {k: v for k, v in dbentry.items() if v}
 
-	existing_track_id = get_track_id(changedtrack, create_new=False, dbconn=dbconn)
+	existing_track_id = get_track_id(changedtrack, create_new=False, use_aliases=False, dbconn=dbconn)
 	if existing_track_id not in (None, track_id):
 		raise exc.TrackExists(changedtrack)
 
@@ -793,12 +818,16 @@ def edit_track(track_id: int, trackupdatedict: dict, dbconn=None) -> bool:
 		**dbentry
 	)
 	result = dbconn.execute(op)
+
+	remove_alias('track', changedtrack['title'], artists=track['artists'], dbconn=dbconn)
+	if record_alias and normalize_name(track['title']) != normalize_name(changedtrack['title']):
+		add_alias('track', track['title'], track_id, artists=track['artists'], source='rename', dbconn=dbconn)
 	return True
 
 
 # edit function only for primary db information (not linked fields)
 @connection_provider
-def edit_album(album_id: int, albumupdatedict: dict, dbconn=None) -> bool:
+def edit_album(album_id: int, albumupdatedict: dict, record_alias=False, dbconn=None) -> bool:
 
 	album = get_album(album_id, dbconn=dbconn)
 	changedalbum: AlbumDict = {**album, **albumupdatedict}
@@ -806,7 +835,7 @@ def edit_album(album_id: int, albumupdatedict: dict, dbconn=None) -> bool:
 	dbentry = album_dict_to_db(albumupdatedict, dbconn=dbconn)
 	dbentry = {k: v for k, v in dbentry.items() if v}
 
-	existing_album_id = get_album_id(changedalbum, create_new=False, dbconn=dbconn)
+	existing_album_id = get_album_id(changedalbum, create_new=False, use_aliases=False, dbconn=dbconn)
 	if existing_album_id not in (None, album_id):
 		raise exc.AlbumExists(changedalbum)
 
@@ -816,6 +845,10 @@ def edit_album(album_id: int, albumupdatedict: dict, dbconn=None) -> bool:
 		**dbentry
 	)
 	result = dbconn.execute(op)
+
+	remove_alias('album', changedalbum['albumtitle'], artists=album['artists'] or [], dbconn=dbconn)
+	if record_alias and normalize_name(album['albumtitle']) != normalize_name(changedalbum['albumtitle']):
+		add_alias('album', album['albumtitle'], album_id, artists=album['artists'] or [], source='rename', dbconn=dbconn)
 	return True
 
 
@@ -898,7 +931,12 @@ def remove_artists_from_albums(album_ids: list[int], artist_ids: list[int], dbco
 ### Merge
 
 @connection_provider
-def merge_tracks(target_id: int, source_ids: list[int], dbconn=None) -> bool:
+def merge_tracks(target_id: int, source_ids: list[int], record_alias=False, dbconn=None) -> bool:
+
+	repoint_aliases('track', target_id, source_ids, dbconn=dbconn)
+	if record_alias:
+		for source in [get_track(source_id, dbconn=dbconn) for source_id in source_ids]:
+			add_alias('track', source['title'], target_id, artists=source['artists'], source='merge', dbconn=dbconn)
 
 	op = DB['scrobbles'].update().where(
 		DB['scrobbles'].c.track_id.in_(source_ids)
@@ -911,7 +949,12 @@ def merge_tracks(target_id: int, source_ids: list[int], dbconn=None) -> bool:
 
 
 @connection_provider
-def merge_artists(target_id: int, source_ids: list[int], dbconn=None) -> bool:
+def merge_artists(target_id: int, source_ids: list[int], record_alias=False, dbconn=None) -> bool:
+
+	repoint_aliases('artist', target_id, source_ids, dbconn=dbconn)
+	if record_alias:
+		for source in [get_artist(source_id, dbconn=dbconn) for source_id in source_ids]:
+			add_alias('artist', source, target_id, source='merge', dbconn=dbconn)
 
 	# some tracks could already have multiple of the to be merged artists
 	# on each track and album, the first of their entries takes the target artist and the
@@ -955,7 +998,12 @@ def merge_artists(target_id: int, source_ids: list[int], dbconn=None) -> bool:
 
 
 @connection_provider
-def merge_albums(target_id: int, source_ids: list[int], dbconn=None) -> bool:
+def merge_albums(target_id: int, source_ids: list[int], record_alias=False, dbconn=None) -> bool:
+
+	repoint_aliases('album', target_id, source_ids, dbconn=dbconn)
+	if record_alias:
+		for source in [get_album(source_id, dbconn=dbconn) for source_id in source_ids]:
+			add_alias('album', source['albumtitle'], target_id, artists=source['artists'] or [], source='merge', dbconn=dbconn)
 
 	op = DB['tracks'].update().where(
 		DB['tracks'].c.album_id.in_(source_ids)
