@@ -73,7 +73,7 @@ def waitfordb(func):
 
 ISSUES = {}
 
-cla = CleanerAgent()
+cla = CleanerAgent(known_artist=sqldb.is_known_artist)
 
 
 

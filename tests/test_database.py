@@ -89,3 +89,16 @@ def test_clean_db_keeps_aliases_of_existing_entities(db):
 	with sqldb.engine.connect() as conn:
 		names = [row.name_normalized for row in conn.execute(sqldb.DB["aliases"].select())]
 	assert names == ["kept old"]
+
+
+def test_parser_keeps_known_artists_whole(db):
+	def parse(artist):
+		return db.rawscrobble_to_scrobbledict({"track_artists": [artist], "track_title": "Song"})["track"]["artists"]
+
+	assert parse("Mumford & Sons") == ["Mumford", "Sons"]
+	# becomes known as soon as it exists, without a restart
+	scrobble(1, ["Mumford & Sons"], "Little Lion Man")
+	assert parse("Mumford & Sons") == ["Mumford & Sons"]
+	# and an old name of a known artist counts too
+	db.edit_artist(sqldb.get_artist_id("Mumford & Sons"), "Mumford and Sons")
+	assert parse("Mumford & Sons") == ["Mumford & Sons"]

@@ -92,6 +92,24 @@ def test_rules(agent_with_rules, rules, artists_in, title_in, artists_out, title
 	assert (artists, title) == (artists_out, title_out)
 
 
+# the database tells the parser which full names already exist (sqldb.is_known_artist)
+KNOWN_ARTISTS_CASES = [
+	pytest.param({}, "Simon & Garfunkel", ["Simon & Garfunkel"], id="known-kept-whole"),
+	pytest.param({}, "Simon & Paul", ["Simon", "Paul"], id="unknown-split"),
+	pytest.param({}, "AC/DC", ["AC/DC"], id="known-formal-kept-whole"),
+	pytest.param({}, "A feat. B", ["A", "B"], id="known-feat-still-split"),
+	pytest.param({"ARTIST_KEEP_KNOWN": False}, "Simon & Garfunkel", ["Simon", "Garfunkel"], id="keep-known-off"),
+]
+
+
+@pytest.mark.parametrize("values,artists_in,artists_out", KNOWN_ARTISTS_CASES)
+def test_known_artists(settings, values, artists_in, artists_out):
+	known = {"Simon & Garfunkel", "AC/DC", "A feat. B", "Simon", "Garfunkel", "Paul", "A", "B"}
+	settings(**values)
+	artists, _, _ = cleanup.CleanerAgent(known_artist=lambda name: name in known).fullclean(artists_in, "Song", None)
+	assert artists == artists_out
+
+
 def test_cleanup_compiles_without_warnings():
 	with open(cleanup.__file__) as f:
 		source = f.read()

@@ -549,6 +549,8 @@ def add_alias(entity_type: str, name: str, target_id: int, artists=None, source=
 		set_={k: values[k] for k in ('target_id', 'created_at', 'source')}
 	)
 	dbconn.execute(op)
+	if entity_type == 'artist':
+		remember_known_artist(name, kind='aliases')
 	return True
 
 
@@ -561,6 +563,7 @@ def remove_alias(entity_type: str, name: str, artists=None, dbconn=None):
 	if artists is not None:
 		conditions.append(DB['aliases'].c.artists_normalized == alias_artists_key(artists))
 	dbconn.execute(DB['aliases'].delete().where(*conditions))
+	forget_known_artists()
 
 
 def repoint_aliases(entity_type: str, target_id: int, source_ids: list[int], dbconn=None):
@@ -587,6 +590,36 @@ def find_alias(entity_type: str, nname: str, artist_ids=None, dbconn=None) -> in
 		if None not in alias_artist_ids and set(alias_artist_ids) == set(artist_ids):
 			return row.target_id
 	return None
+
+
+### known artist names, so the parser can keep names like "Simon & Garfunkel" whole
+# a plain in-memory set instead of the db cache: the parser asks for every scrobble, also in AUX_MODE
+# (imports), so it is kept up to date deliberately and only reloaded after deletions
+
+known_artist_names = None
+
+def is_known_artist(name: str) -> bool:
+	global known_artist_names
+	known = known_artist_names
+	if known is None:
+		with engine.connect() as conn:
+			known = {
+				'artists': {row.name_normalized for row in conn.execute(sql.select(DB['artists'].c.name_normalized))},
+				'aliases': {row.name_normalized for row in conn.execute(sql.select(DB['aliases'].c.name_normalized).where(DB['aliases'].c.entity_type == 'artist'))}
+			}
+		known_artist_names = known
+	nname = normalize_name(name)
+	return nname in known['artists'] or (malojaconfig['LEARN_ALIASES'] and nname in known['aliases'])
+
+
+def remember_known_artist(name: str, kind='artists'):
+	if known_artist_names is not None:
+		known_artist_names[kind].add(normalize_name(name))
+
+
+def forget_known_artists():
+	global known_artist_names
+	known_artist_names = None
 
 
 ### these will 'get' the ID of an entity, creating it if necessary
@@ -688,6 +721,7 @@ def get_artist_id(artistname: str, create_new=True, use_aliases=True, dbconn=Non
 		name_normalized=nname
 	)
 	result = dbconn.execute(op)
+	remember_known_artist(artistname)
 	#print("Created",artistname,result.inserted_primary_key)
 	return result.inserted_primary_key[0]
 
@@ -793,6 +827,7 @@ def edit_artist(artist_id: int, artistupdatedict: str, record_alias=False, dbcon
 	result = dbconn.execute(op)
 
 	remove_alias('artist', changedartist, dbconn=dbconn)
+	remember_known_artist(changedartist)
 	if record_alias and normalize_name(artist) != normalize_name(changedartist):
 		add_alias('artist', artist, artist_id, source='rename', dbconn=dbconn)
 	return True
@@ -1915,6 +1950,7 @@ def clean_db(dbconn=None):
 			for row in selection.all():
 				log(f"Deleting {row}")
 			deletion = dbconn.execute(sql.text(f"delete {d}"))
+		forget_known_artists()
 
 		log("Database Cleanup complete!")
 

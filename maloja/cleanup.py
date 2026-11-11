@@ -9,7 +9,9 @@ from .pkg_global.conf import data_dir, malojaconfig
 # I'm dumb
 class CleanerAgent:
 
-	def __init__(self):
+	def __init__(self,known_artist=None):
+		# optional callback: is this exact name already a known artist? (see sqldb.is_known_artist)
+		self.known_artist = known_artist
 		self.updateRules()
 
 	def updateRules(self):
@@ -128,8 +130,19 @@ class CleanerAgent:
 
 
 
-		for d in (self.delimiters_feat + self.delimiters):
+		for d in self.delimiters_feat:
 			if ((" " + d + " ") in a):
+				ls = []
+				for i in a.split(" " + d + " "):
+					ls += self.parseArtists(i)
+				return ls
+
+		# names like "Simon & Garfunkel" or "AC/DC" stay whole once they are known
+		# (featuring is never protected, those are not band names)
+		for d in self.delimiters:
+			if ((" " + d + " ") in a):
+				if self.isKnownArtist(a):
+					return [a.strip()]
 				ls = []
 				for i in a.split(" " + d + " "):
 					ls += self.parseArtists(i)
@@ -137,6 +150,8 @@ class CleanerAgent:
 
 		for d in self.delimiters_formal:
 			if (d in a):
+				if self.isKnownArtist(a):
+					return [a.strip()]
 				ls = []
 				for i in a.split(d):
 					ls += self.parseArtists(i)
@@ -147,6 +162,9 @@ class CleanerAgent:
 
 
 		return [a.strip()]
+
+	def isKnownArtist(self,a):
+		return bool(self.known_artist and malojaconfig["ARTIST_KEEP_KNOWN"] and self.known_artist(a.strip()))
 
 	def parseTitle(self,t):
 		if t.strip().lower() in self.rules_replacetitle:

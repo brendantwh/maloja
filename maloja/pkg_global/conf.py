@@ -210,6 +210,7 @@ malojaconfig = Configuration(
 			"title_merge_mono_stereo":(tp.Boolean(),							"Merge Mono and Stereo Versions",True,																						"Remove tags like ' - Mono' or '(2009 Stereo Mix)' so mono and stereo versions count as the original track"),
 			"learn_aliases":(tp.Boolean(),										"Learn Aliases from Edits",		True,																						"When you rename or merge an artist, track or album, remember the old name so future scrobbles with it go to the right place"),
 			"artist_credit_order":(tp.Boolean(),								"Keep Credited Artist Order",	True,																						"Keep artists in the order they were credited, main artist first. When off, artists are sorted alphabetically"),
+			"artist_keep_known":(tp.Boolean(),									"Don't Split Known Artists",	True,																						"Keep an artist name like 'Simon & Garfunkel' whole when it is already a known artist (or the old name of one), instead of splitting it at '&' or '/'"),
 			"delimiters_feat":(tp.Set(tp.String()),								"Featuring Delimiters",			["ft.","ft","feat.","feat","featuring"],													"Delimiters used for extra artists, even when in the title field"),
 			"delimiters_feat_title":(tp.Set(tp.String()),						"Title-only Featuring Delimiters",["with"],																					"Delimiters for extra artists that only count in brackets in the title, like (with X)"),
 			"delimiters_informal":(tp.Set(tp.String()),							"Informal Delimiters",			["vs.","vs","&"],																			"Delimiters in informal artist strings with spaces expected around them"),

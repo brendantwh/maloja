@@ -44,6 +44,7 @@ def _empty_db(monkeypatch):
 			conn.execute(table.delete())
 	dbcache.invalidate_entity_cache()
 	dbcache.invalidate_caches()
+	sqldb.forget_known_artists()
 	return database
 
 

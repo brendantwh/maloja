@@ -15,8 +15,10 @@ from maloja.pkg_global.conf import data_dir
 CASES = [
 	(["Alpha"], "Steady", ["Alpha"], "Steady", "client:test"),
 	(["Alpha"], "Steady", ["Alpha"], "Steady", "client:test"),
-	# stored before '&' was a delimiter
+	# stored before '&' was a delimiter: a known artist now, so it stays whole
 	(["Alpha & Beta"], "Duet", ["Alpha & Beta"], "Duet", "client:test"),
+	# stored under another spelling, so the raw name is not known and gets split
+	(["Mu Nu"], "Pair", ["Mu & Nu"], "Pair", "client:test"),
 	# stored before remaster tags were stripped
 	(["Gamma"], "Song", ["Gamma"], "Song", "client:test"),
 	(["Gamma"], "Song (2009 Remaster)", ["Gamma"], "Song (2009 Remaster)", "client:test"),
@@ -41,7 +43,7 @@ def report(module_db):
 	rulesfile = data_dir["rules"]("reparse_report_tests.tsv")
 	with open(rulesfile, "w") as f:
 		f.write("replaceartist\tZeta Old\tZeta\n")
-	mp.setattr(database, "cla", CleanerAgent())
+	mp.setattr(database, "cla", CleanerAgent(known_artist=sqldb.is_known_artist))
 	sqldb.add_scrobbles([
 		{
 			"time": 1000 + i,
@@ -59,7 +61,7 @@ def report(module_db):
 
 def test_coverage(report):
 	scrobbles = report["scrobbles"]
-	assert (scrobbles["total"], scrobbles["reparsed"], scrobbles["unchanged"], scrobbles["moved"]) == (12, 10, 6, 4)
+	assert (scrobbles["total"], scrobbles["reparsed"], scrobbles["unchanged"], scrobbles["moved"]) == (13, 11, 7, 4)
 	assert scrobbles["no_raw"] == {"total": 1, "by_origin": {"import:lastfm": 1}}
 	assert (scrobbles["discarded"]["count"], scrobbles["errors"]["count"]) == (1, 0)
 
@@ -77,7 +79,7 @@ def test_track_changes(report):
 	assert [i["track"]["title"] for i in split["into"]] == ["Track X", "Track X (feat. Epsilon)"]
 
 	assert {(r["track"]["title"], tuple(r["to"]["artists"]), tuple(r["changed"])) for r in tracks["renames"]["examples"]} == {
-		("Duet", ("Alpha", "Beta"), ("artists",)),
+		("Pair", ("Mu", "Nu"), ("artists",)),
 		("Tune", ("Zeta",), ("artists",)),
 	}
 
@@ -85,12 +87,12 @@ def test_track_changes(report):
 def test_artist_changes(report):
 	artists = report["artists"]
 	assert {(tuple(c["from"]), tuple(c["to"]), c["kind"]) for c in artists["changes"]["examples"]} == {
-		(("Alpha & Beta",), ("Alpha", "Beta"), "split"),
+		(("Mu Nu",), ("Mu", "Nu"), "split"),
 		(("Zeta Old",), ("Zeta",), "rename"),
 		((), ("Epsilon",), "added"),
 	}
-	assert {v["artist"] for v in artists["vanishing"]["examples"]} == {"Alpha & Beta", "Zeta Old"}
-	assert {v["artist"] for v in artists["new"]["examples"]} == {"Beta", "Epsilon", "Zeta"}
+	assert {v["artist"] for v in artists["vanishing"]["examples"]} == {"Mu Nu", "Zeta Old"}
+	assert {v["artist"] for v in artists["new"]["examples"]} == {"Mu", "Nu", "Epsilon", "Zeta"}
 
 
 def test_report_writes_nothing(report):

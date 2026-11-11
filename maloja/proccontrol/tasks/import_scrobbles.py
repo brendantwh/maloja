@@ -7,7 +7,12 @@ from ...cleanup import *
 from ...pkg_global.conf import data_dir
 
 
-c = CleanerAgent()
+def known_artist(name):
+	# imported lazily, so loading this module doesn't open the database
+	from ...database.sqldb import is_known_artist
+	return is_known_artist(name)
+
+c = CleanerAgent(known_artist=known_artist)
 
 outputs = {
 	"CONFIDENT_IMPORT": lambda msg: None,
