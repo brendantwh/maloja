@@ -23,6 +23,22 @@ class RuleError(ValueError):
 	pass
 
 
+# for the web interface: what each rule does, and what its fields mean (␟ separates several artists)
+RULE_INFO = {
+	"replaceartist": ("Replace an artist name (can become several artists)", ["Artist as sent", "Correct artist(s)"]),
+	"replacetitle": ("Replace a track title (ignores case)", ["Title as sent", "Correct title"]),
+	"replacealbumtitle": ("Replace an album title (ignores case)", ["Album as sent", "Correct album"]),
+	"belongtogether": ("Keep an artist name with & or / in it whole (exact spelling)", ["Artist name"]),
+	"notanartist": ("Text after 'feat.' that isn't an artist (exact spelling)", ["Text"]),
+	"ignoreartist": ("Drop this artist from scrobbles", ["Artist name"]),
+	"countas": ("Count an artist towards another one in charts (stored data stays the same)", ["Artist", "Counts as"]),
+	"artistintitle": ("Text in a title that means another artist is on the track", ["Text in title", "Artist(s)"]),
+	"fixartists": ("For this title, if any of these artists is there, use exactly these artists", ["Artists", "Title"]),
+	"addartists": ("For this title, if these artists are all there, add more artists", ["Artists that must be there", "Title", "Artists to add"]),
+}
+LIST_FIELDS = {("replaceartist", 1), ("artistintitle", 1), ("fixartists", 0), ("addartists", 0), ("addartists", 2)}
+
+
 def rule_key(rule):
 	return json.dumps([rule.type, list(rule.fields), rule.scope or ''], ensure_ascii=False)
 

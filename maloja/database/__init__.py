@@ -948,6 +948,14 @@ def get_featured(dbconn=None):
 				break
 	return result
 
+def get_parser_rules(dbconn=None):
+	from ..cleanup import SCOPABLE
+	return {
+		"rules":rules.list_rules(dbconn=dbconn),
+		"rulesets":rules.list_rulesets(dbconn=dbconn),
+		"types":{t:{"desc":desc,"fields":fields,"lists":[i for i in range(len(fields)) if (t,i) in rules.LIST_FIELDS],"scopable":t in SCOPABLE} for t,(desc,fields) in rules.RULE_INFO.items()},
+	}
+
 def get_predefined_rulesets(dbconn=None):
 	states = rules.get_ruleset_states(dbconn=dbconn)
 	pending = {name for kind, name, _ in rules.pending_files() if kind == 'set'}
