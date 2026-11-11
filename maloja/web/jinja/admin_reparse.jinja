@@ -1,0 +1,152 @@
+{% set page ='admin_reparse' %}
+{% extends "abstracts/admin.jinja" %}
+{% block title %}Maloja - Reparse{% endblock %}
+
+{% block scripts %}
+	<style>
+		#reparse_groups h3 { margin-bottom: 4px; }
+		#reparse_groups table.misc td { vertical-align: top; }
+		#reparse_groups .count { opacity: 0.6; }
+		.reparse-summary td { padding-right: 20px; }
+	</style>
+	<script>
+		const SHOWN = 50;
+		let polling = null;
+
+		function el(tag, text, cls) {
+			const e = document.createElement(tag);
+			if (text !== undefined) { e.textContent = text; }
+			if (cls) { e.className = cls; }
+			return e;
+		}
+		function trackname(t) { return t.artists.join(', ') + ' – ' + t.title; }
+
+		function startPreview() {
+			neo.xhttpreq("/apis/mlj_1/reparse_preview", {}, "POST", function(req) {
+				notifyCallback(req);
+				if (req.status == 200) { poll(); }
+			}, true);
+		}
+
+		function poll() {
+			neo.xhttpreq("/apis/mlj_1/reparse_status", {'report': 'yes'}, "GET", function(req) {
+				// neo only parses json responses of POST requests
+				const job = (typeof req.response === 'string') ? JSON.parse(req.response) : req.response;
+				show(job);
+				clearTimeout(polling);
+				if (['previewing', 'applying'].includes(job.state)) { polling = setTimeout(poll, 1500); }
+			}, true);
+		}
+
+		function show(job) {
+			const state = document.getElementById('reparse_state');
+			const groups = document.getElementById('reparse_groups');
+			const apply = document.getElementById('reparse_apply');
+			apply.style.display = 'none';
+			document.getElementById('preview_button').disabled = ['previewing', 'applying'].includes(job.state);
+			if (job.state == 'idle') { state.textContent = 'No preview yet.'; groups.replaceChildren(); return; }
+			if (job.state == 'previewing') { state.textContent = 'Working out what would change…'; return; }
+			if (job.state == 'applying') {
+				const [done, total] = job.progress;
+				state.textContent = 'Applying… ' + done.toLocaleString() + ' of ' + total.toLocaleString() + ' scrobbles.';
+				groups.replaceChildren();
+				return;
+			}
+			if (job.state == 'error') { state.textContent = 'Something went wrong: ' + job.error; return; }
+			if (job.state == 'done') {
+				const r = job.result;
+				state.textContent = 'Done. ' + r.moved.toLocaleString() + ' scrobbles moved to another track, ' + r.reordered.toLocaleString() + ' tracks reordered, '
+					+ r.skipped.toLocaleString() + ' scrobbles skipped. The database from before is saved as ' + r.snapshot + '. Preview again to check the result.';
+				groups.replaceChildren();
+				return;
+			}
+			// ready
+			showReport(job.report);
+			apply.style.display = '';
+		}
+
+		function showReport(report) {
+			const s = report.scrobbles, t = report.tracks;
+			document.getElementById('reparse_state').replaceChildren(
+				el('div', s.total.toLocaleString() + ' scrobbles: ' + s.unchanged.toLocaleString() + ' unchanged, ' + s.moved.toLocaleString() + ' would move to another track.'),
+				el('div', s.no_raw.total.toLocaleString() + ' have no raw data and stay as they are (mostly imports). '
+					+ s.discarded.count.toLocaleString() + ' would be rejected by the current rules and stay as they are. ' + s.errors.count.toLocaleString() + ' could not be parsed.'),
+				el('div', 'Untick anything you want to keep as it is. Unticking skips every scrobble of the tracks involved.')
+			);
+			const groups = document.getElementById('reparse_groups');
+			groups.replaceChildren();
+			section(groups, 'Tracks that would merge', t.merges.examples, function(m) {
+				return [m.from.map(f => trackname(f.track) + ' (' + f.scrobbles + ')').join(', '), '→ ' + trackname(m.into) + (m.existing ? '' : ' (new)')];
+			});
+			section(groups, 'Tracks that would split', t.splits.examples, function(sp) {
+				return [trackname(sp.track), '→ ' + sp.into.map(i => trackname(i.track) + ' (' + i.scrobbles + ')').join(', ')];
+			});
+			section(groups, 'Tracks that would change', t.renames.examples, function(r) {
+				return [trackname(r.track), '→ ' + trackname(r.to) + ' (' + r.changed.join(', ') + ')'];
+			});
+			section(groups, 'Artist order that differs from the credits', t.reordered.examples, function(r) {
+				return [trackname(r.track), '→ ' + r.credited.join(', ')];
+			}, 'reorder');
+			if (!groups.children.length) { groups.append(el('p', 'Nothing would change.')); }
+		}
+
+		function section(parent, title, entries, describe, kind) {
+			if (!entries.length) { return; }
+			const box = el('div');
+			box.append(el('h3', title + ' (' + entries.length.toLocaleString() + ')'));
+			let target = box;
+			entries.forEach(function(entry, i) {
+				if (i == SHOWN) {
+					const more = el('details');
+					more.append(el('summary', 'Show ' + (entries.length - SHOWN).toLocaleString() + ' more'));
+					box.append(more);
+					target = more;
+				}
+				const row = el('div');
+				const box_ = el('input');
+				box_.type = 'checkbox';
+				box_.checked = true;
+				box_.className = 'reparse-group' + (kind ? ' ' + kind : '');
+				box_.dataset.trackIds = JSON.stringify(entry.track_ids);
+				const [from, to] = describe(entry);
+				row.append(box_, el('span', ' ' + from + ' '), el('span', to), el('span', '  [' + entry.scrobbles + ' scrobbles]', 'count'));
+				target.append(row);
+			});
+			parent.append(box);
+		}
+
+		function applyReparse() {
+			const skip = new Set();
+			for (const box of document.querySelectorAll('input.reparse-group')) {
+				if (!box.checked) { JSON.parse(box.dataset.trackIds).forEach(id => skip.add(id)); }
+			}
+			const reorder = document.getElementById('reparse_reorder').checked;
+			if (!confirm('Apply the current rules to your scrobbles? A snapshot of the database is saved first.')) { return; }
+			neo.xhttpreq("/apis/mlj_1/reparse_apply", {'skip_track_ids': Array.from(skip), 'reorder': reorder}, "POST", function(req) {
+				notifyCallback(req);
+				if (req.status == 200) { poll(); }
+			}, true);
+		}
+
+		document.addEventListener("DOMContentLoaded", poll);
+	</script>
+{% endblock %}
+
+{% block maincontent %}
+
+	<h2>Reparse existing scrobbles</h2>
+	New rules and parser settings only apply to new scrobbles. This applies them to the scrobbles you already have, using the raw data Maloja stored when each scrobble arrived.
+	Preview first: nothing changes until you press Apply. Edits you made by hand (renames, merges) are kept through <a class="textlink" href="/admin_aliases">aliases</a>; older edits from before aliases existed may show up below.
+	<br/><br/>
+	<button type="button" id="preview_button" onclick="startPreview()">Preview</button>
+	<br/><br/>
+	<div id="reparse_state"></div>
+	<div id="reparse_groups"></div>
+	<div id="reparse_apply" style="display:none;">
+		<br/>
+		<label><input type="checkbox" id="reparse_reorder" checked /> Also put the artists of existing tracks in credited order</label>
+		<br/><br/>
+		<button type="button" onclick="applyReparse()">Apply</button>
+	</div>
+
+{% endblock %}
