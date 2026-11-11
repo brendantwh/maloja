@@ -12,7 +12,6 @@ from doreah.logging import log
 
 from bottle import response
 
-from ..cleanup import CleanerAgent
 from .. import database
 
 __logmodulename__ = "apis"
@@ -23,7 +22,6 @@ __logmodulename__ = "apis"
 
 
 
-cla = CleanerAgent()
 
 
 
