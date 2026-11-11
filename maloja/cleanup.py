@@ -2,6 +2,7 @@ import re
 import os
 import io
 import csv
+import contextvars
 from dataclasses import dataclass
 
 from .pkg_global.conf import data_dir, malojaconfig
@@ -114,6 +115,16 @@ class RuleBook:
 		return list(found.values())
 
 
+# rules that fired during CleanerAgent.explain, per thread or task
+_fired = contextvars.ContextVar("fired_rules", default=None)
+
+def fired(rule):
+	trace = _fired.get()
+	if trace is not None and rule not in trace:
+		trace.append(rule)
+	return rule
+
+
 class CleanerAgent:
 
 	def __init__(self, rules=None, rules_loader=None, known_artist=None):
@@ -140,6 +151,15 @@ class CleanerAgent:
 		return self.book.rules
 
 
+	def explain(self,artist,title,album=None):
+		"""Like fullclean, but also returns the rules that fired, in the order they did."""
+		token = _fired.set([])
+		try:
+			artists,title,album = self.fullclean(artist,title,album)
+			return {'artists':artists,'title':title,'album':album,'rules':_fired.get()}
+		finally:
+			_fired.reset(token)
+
 	def fullclean(self,artist,title,album):
 		artists = self.parseArtists(self.removespecial(artist))
 		title = self.parseTitle(self.removespecial(title),artists)
@@ -155,11 +175,13 @@ class CleanerAgent:
 			reqartists = reqartists.lower().split("␟")
 			allartists = allartists.split("␟")
 			if set(reqartists).issubset({a.lower() for a in artists}):
+				fired(addrule)
 				artists += allartists
 		elif fixrule:
 			allartists = fixrule.fields[0]
 			allartists = allartists.split("␟")
 			if len({a.lower() for a in allartists} & {a.lower() for a in artists}) > 0:
+				fired(fixrule)
 				artists = allartists
 		# main artist first, in the order they were credited
 		artists = list(dict.fromkeys(artists))
@@ -199,23 +221,26 @@ class CleanerAgent:
 		if a.strip() in malojaconfig["INVALID_ARTISTS"]:
 			return []
 
-		if self.book.find("ignoreartist",a.strip()):
+		if rule := self.book.find("ignoreartist",a.strip()):
+			fired(rule)
 			return []
 
 		if a.strip() == "":
 			return []
 
-		if self.book.find("notanartist",a.strip()):
+		if rule := self.book.find("notanartist",a.strip()):
+			fired(rule)
 			return []
 
 		if " performing " in a.lower():
 			return self.parseArtists(re.split(" [Pp]erforming",a)[0])
 
-		if self.book.find("belongtogether",a.strip()):
+		if rule := self.book.find("belongtogether",a.strip()):
+			fired(rule)
 			return [a.strip()]
 		replacement = self.book.find("replaceartist",a.strip())
 		if replacement:
-			return replacement.fields[1].split("␟")
+			return fired(replacement).fields[1].split("␟")
 
 
 
@@ -273,7 +298,7 @@ class CleanerAgent:
 	def parseTitle(self,t,artists=()):
 		replacement = self.book.find("replacetitle",t.strip(),artists)
 		if replacement:
-			return replacement.fields[1]
+			return fired(replacement).fields[1]
 
 		t = t.replace("[","(").replace("]",")")
 
@@ -366,13 +391,13 @@ class CleanerAgent:
 
 
 		for rule in self.book.all("artistintitle",known):
-			if rule.fields[0].lower() in title.lower(): artists += rule.fields[1].split("␟")
+			if rule.fields[0].lower() in title.lower(): artists += fired(rule).fields[1].split("␟")
 		return (title,artists)
 
 	def parseAlbumtitle(self,t,artists=()):
 		replacement = self.book.find("replacealbumtitle",t.strip(),artists)
 		if replacement:
-			return replacement.fields[1]
+			return fired(replacement).fields[1]
 
 		t = t.replace("[","(").replace("]",")")
 
