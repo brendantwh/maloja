@@ -837,50 +837,23 @@ def merge_tracks(target_id: int, source_ids: list[int], dbconn=None) -> bool:
 def merge_artists(target_id: int, source_ids: list[int], dbconn=None) -> bool:
 
 	# some tracks could already have multiple of the to be merged artists
+	# on each track and album, the first of their entries takes the target artist and the
+	# others are deleted, so the target keeps the credited position instead of moving to the end
+	for table, entity in (('trackartists', 'track_id'), ('albumartists', 'album_id')):
+		op = DB[table].select().where(
+			DB[table].c.artist_id.in_(source_ids + [target_id])
+		).order_by(DB[table].c.id)
+		keep, remove = {}, []
+		for row in dbconn.execute(op):
+			if getattr(row, entity) in keep:
+				remove.append(row.id)
+			else:
+				keep[getattr(row, entity)] = row.id
 
-	# find literally all tracksartist entries that have any of the artists involved
-	op = DB['trackartists'].select().where(
-		DB['trackartists'].c.artist_id.in_(source_ids + [target_id])
-	)
-	result = dbconn.execute(op)
-
-	track_ids = set(row.track_id for row in result)
-
-	# now just delete them all lmao
-	op = DB['trackartists'].delete().where(
-		#DB['trackartists'].c.track_id.in_(track_ids),
-		DB['trackartists'].c.artist_id.in_(source_ids + [target_id]),
-	)
-
-	result = dbconn.execute(op)
-
-	# now add back the real new artist
-	op = DB['trackartists'].insert().values([
-		{'track_id':track_id,'artist_id':target_id}
-		for track_id in track_ids
-	])
-
-	result = dbconn.execute(op)
-
-	# same for albums
-	op = DB['albumartists'].select().where(
-		DB['albumartists'].c.artist_id.in_(source_ids + [target_id])
-	)
-	result = dbconn.execute(op)
-
-	album_ids = set(row.album_id for row in result)
-
-	op = DB['albumartists'].delete().where(
-		DB['albumartists'].c.artist_id.in_(source_ids + [target_id]),
-	)
-	result = dbconn.execute(op)
-
-	op = DB['albumartists'].insert().values([
-		{'album_id':album_id,'artist_id':target_id}
-		for album_id in album_ids
-	])
-
-	result = dbconn.execute(op)
+		if remove:
+			dbconn.execute(DB[table].delete().where(DB[table].c.id.in_(remove)))
+		if keep:
+			dbconn.execute(DB[table].update().where(DB[table].c.id.in_(keep.values())).values(artist_id=target_id))
 
 #	tracks_artists = {}
 #	for row in result:
