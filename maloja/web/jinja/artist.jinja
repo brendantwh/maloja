@@ -47,6 +47,15 @@
 		{% include 'icons/association_cancel.jinja' %}
 		</div>
 
+		<div class="iconsubset">
+		{% with rule_title='Add a rule only for this artist…', rule_query={'type':'replacetitle','scope':info.artist}, rule_icon='filter' %}
+			{% include 'icons/rule_link.jinja' %}
+		{% endwith %}
+		{% with rule_title='Count this artist as another one in charts…', rule_query={'type':'countas','f0':info.artist}, rule_icon='arrow' %}
+			{% include 'icons/rule_link.jinja' %}
+		{% endwith %}
+		</div>
+
 	{% endif %}
 {% endblock %}
 
