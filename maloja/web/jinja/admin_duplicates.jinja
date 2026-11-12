@@ -2,85 +2,125 @@
 {% extends "abstracts/library.jinja" %}
 {% block title %}Maloja - Duplicates{% endblock %}
 
-{% import 'snippets/links.jinja' as links %}
+{# the suggestions, with a link for every member #}
+{% set found = dbc.get_duplicates() %}
+{% set groups = {'artists': [], 'tracks': []} %}
+{% for kind in ['artists', 'tracks'] %}
+	{% for s in found[kind] %}
+		{% set members = [] %}
+		{% for m in s.members %}
+			{% if kind == 'artists' %}
+				{% set _ = members.append({'id': m.id, 'name': m.name, 'url': mlj_uri.create_uri("/artist", {'artist': m.name}), 'scrobbles': m.scrobbles, 'origins': m.origins}) %}
+			{% else %}
+				{% set _ = members.append({'id': m.id, 'name': m.title, 'artists': m.artists, 'length': m.length,
+					'url': mlj_uri.create_uri("/track", {'track': {'title': m.title, 'artists': m.artists}}), 'scrobbles': m.scrobbles, 'origins': m.origins}) %}
+			{% endif %}
+		{% endfor %}
+		{% set _ = groups[kind].append({'type': s.entity_type, 'ids': s.ids, 'scrobbles': s.scrobbles, 'members': members}) %}
+	{% endfor %}
+{% endfor %}
 
 {% block libscripts %}
-	<style>
-		div.duplicate { margin: 0 0 20px 20px; }
-		div.duplicate table.misc { margin-left: 0; }
-		div.duplicate .origins { opacity: 0.6; }
-	</style>
+	<script type="application/json" id="dups-data">{{ groups | tojson }}</script>
 	<script>
-		function groupOf(element) { return element.closest('div.duplicate'); }
+	document.addEventListener('DOMContentLoaded', function() {
+		const { $, esc, plural, toast, api } = Lib;
+		const dups = Lib.data('dups-data');
+		let kind = dups.artists.length || !dups.tracks.length ? 'artists' : 'tracks';
+		const origin = o => o.replace(/^client:/, '');
+		const length = s => s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '';
+		const title = g => kind === 'artists'
+			? [...new Set(g.members.map(m => m.name))].join(' / ')
+			: `${g.members[0].artists.join(', ')} – ${g.members[0].name}`;
 
-		function mergeGroup(element) {
-			const group = groupOf(element);
-			const type = group.dataset.type;
-			const target = group.querySelector('input[type=radio]:checked');
-			const sources = Array.from(group.querySelectorAll('input.merge:checked')).map(b => parseInt(b.value)).filter(id => id != parseInt(target.value));
-			if (!sources.length) { notify('Nothing to merge', 'Tick at least one other entry to merge into the one you picked.', 'warning'); return; }
-			const name = target.dataset.name;
-			if (!confirm('Merge ' + sources.length + ' into "' + name + '"? The other spellings are remembered as aliases.')) { return; }
-			neo.xhttpreq("/apis/mlj_1/merge_" + type + "s", {'target_id': parseInt(target.value), 'source_ids': sources}, "POST", function(req) {
-				notifyCallback(req);
-				if (req.status == 200) { group.remove(); }
-			}, true);
+		function counts() {
+			$('dup-a').textContent = dups.artists.length;
+			$('dup-t').textContent = dups.tracks.length;
+			Lib.setBadge('lib-dup-badge', dups.artists.length + dups.tracks.length);
+			document.querySelectorAll('#dup-tabs button').forEach(b => b.classList.toggle('active', b.dataset.kind === kind));
 		}
 
-		function dismissGroup(element) {
-			const group = groupOf(element);
-			neo.xhttpreq("/apis/mlj_1/dismiss_duplicate", {'entity_type': group.dataset.type, 'ids': JSON.parse(group.dataset.ids)}, "POST", function(req) {
-				notifyCallback(req);
-				if (req.status == 200) { group.remove(); }
-			}, true);
+		function render() {
+			counts();
+			const groups = dups[kind];
+			if (!groups.length) { $('dup-list').innerHTML = '<div class="empty">Nothing to look at. Nice.</div>'; return; }
+			$('dup-list').innerHTML = groups.map((g, gi) => {
+				const many = g.members.length > 2;
+				return `<div class="dup" data-group="${gi}">
+					<div class="dup-head"><div class="name">${esc(title(g))}</div><div class="count">${plural(g.scrobbles, 'scrobble')}</div></div>
+					${g.members.map((m, mi) => `
+						<label class="member ${mi === 0 ? 'keep' : ''}">
+							<input type="radio" name="keep-${kind}-${gi}" value="${mi}" ${mi === 0 ? 'checked' : ''} data-change="keep">
+							<div><a class="n" href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.name)}</a>${m.artists ? `<div class="sub">${esc(m.artists.join(', '))}${m.length ? ' · ' + length(m.length) : ''}</div>` : ''}</div>
+							<div class="count">${plural(m.scrobbles, 'scrobble')}</div>
+							<div class="origins">${Object.entries(m.origins).map(([o, n]) => `<span class="tag">${esc(origin(o))} ${n}</span>`).join('')}
+								${many ? `<span class="include"><input type="checkbox" class="inc" checked> include</span>` : ''}</div>
+						</label>`).join('')}
+					<div class="dup-foot">
+						<button type="button" class="btn secondary" data-click="dismiss">Not the same</button>
+						<button type="button" class="btn" data-click="merge"></button>
+					</div>
+				</div>`;
+			}).join('');
+			document.querySelectorAll('#dup-list .dup').forEach(pickKeep);
 		}
+
+		const keepOf = box => +box.querySelector('input[type=radio]:checked').value;
+		function pickKeep(box) {
+			const k = keepOf(box), g = dups[kind][+box.dataset.group];
+			box.querySelectorAll('.member').forEach((row, i) => row.classList.toggle('keep', i === k));
+			box.querySelector('[data-click=merge]').textContent = `Merge into ${g.members[k].name}`;
+		}
+
+		function leave(box, then) {
+			box.classList.add('leaving');
+			setTimeout(then, 200);
+		}
+
+		Lib.actions({
+			tab(el) { kind = el.dataset.kind; render(); },
+			keep(el) { pickKeep(el.closest('.dup')); },
+			async merge(el) {
+				const box = el.closest('.dup'), gi = +box.dataset.group, g = dups[kind][gi], k = keepOf(box);
+				const rows = [...box.querySelectorAll('.member')];
+				const others = g.members.filter((m, i) => i !== k && (!rows[i].querySelector('.inc') || rows[i].querySelector('.inc').checked));
+				if (!others.length) { Lib.warn('Include at least one other spelling.'); return; }
+				const into = g.members[k];
+				el.disabled = true;
+				try { await api(kind === 'artists' ? 'merge_artists' : 'merge_tracks', { target_id: into.id, source_ids: others.map(m => m.id) }); }
+				catch (e) { el.disabled = false; return; }
+				const current = kind;
+				leave(box, () => { dups[current].splice(gi, 1); render(); });
+				toast(`Merged ${others.map(m => m.name).join(', ')} into ${into.name}. The other spellings are remembered as aliases.`);
+			},
+			dismiss(el) {
+				const box = el.closest('.dup'), gi = +box.dataset.group, current = kind, g = dups[current][gi];
+				leave(box, () => {
+					dups[current].splice(gi, 1);
+					render();
+					// sent once the toast is gone, so Undo just puts it back
+					Lib.later("Got it, these won't be suggested again.",
+						keepalive => api('dismiss_duplicate', { entity_type: g.type, ids: g.ids }, 'POST', { keepalive }),
+						() => { dups[current].splice(gi, 0, g); render(); });
+				});
+			},
+		});
+
+		render();
+	});
 	</script>
 {% endblock %}
 
-{% set found = dbc.get_duplicates() %}
-
-{% macro origins(member) -%}
-	<span class="origins">{% for origin, n in member.origins.items() %}{{ origin }} {{ n }}{{ ', ' if not loop.last }}{% endfor %}</span>
-{%- endmacro %}
-
-{% macro group(suggestion) %}
-	<div class="duplicate" data-type="{{ suggestion.entity_type }}" data-ids="{{ suggestion.ids | tojson | forceescape }}">
-		<table class="misc">
-			<tr><th>Keep</th><th>Merge</th><th>{{ 'Artist' if suggestion.entity_type == 'artist' else 'Track' }}</th><th>Scrobbles</th><th>From</th></tr>
-			{% for m in suggestion.members %}
-			<tr>
-				<td><input type="radio" name="keep_{{ suggestion.entity_type }}_{{ suggestion.ids | join('_') }}" value="{{ m.id }}" data-name="{{ m.name or m.title }}" {{ 'checked' if loop.first }} /></td>
-				<td><input type="checkbox" class="merge" value="{{ m.id }}" checked /></td>
-				<td>
-					{% if suggestion.entity_type == 'artist' %}
-						{{ links.link(m.name) }}
-					{% else %}
-						{{ links.links(m.artists) }} – {{ links.link({'title': m.title, 'artists': m.artists}) }}
-						{% if m.length %}<span class="origins">({{ (m.length // 60) }}:{{ '%02d' % (m.length % 60) }})</span>{% endif %}
-					{% endif %}
-				</td>
-				<td>{{ m.scrobbles }}</td>
-				<td>{{ origins(m) }}</td>
-			</tr>
-			{% endfor %}
-		</table>
-		<button type="button" onclick="mergeGroup(this)">Merge</button>
-		<button type="button" onclick="dismissGroup(this)">Not the same</button>
-	</div>
-{% endmacro %}
-
 {% block librarycontent %}
-
-	<h2>Possible duplicates</h2>
-	These look like the same artist or track under different spellings, for example from different players.
-	Spelling, case, accents, punctuation, "&amp;" vs "and" and a leading "The" are ignored. Tracks need the same artists; featured artists and remaster, edit or mono tags in the title are ignored, live versions and remixes are not.
-	Merging remembers the other spellings as aliases, so future scrobbles go to the right place. If a player always sends a different format, a <a class="textlink" href="/admin_rules">parser rule</a> may fit better.
-	<br/><br/>
-
-	<h2>Artists ({{ found.artists | length }})</h2>
-	{% for s in found.artists %}{{ group(s) }}{% else %}No suggestions.{% endfor %}
-
-	<h2>Tracks ({{ found.tracks | length }})</h2>
-	{% for s in found.tracks %}{{ group(s) }}{% else %}No suggestions.{% endfor %}
-
+	<div class="page-head">
+		<div class="title">
+			<h2>Duplicates <span class="help" tabindex="0">?<span class="tip">These look like the same artist or track under different spellings, often from different players.<br><br>Ignored: case, accents, punctuation, "&amp;" vs "and", a leading "The". For tracks also featured artists and remaster, edit or mono tags. Live versions and remixes are never suggested.<br><br>Merging remembers the other spellings as <a class="textlink" href="/admin_aliases">aliases</a>. If a player always sends a different format, a <a class="textlink" href="/admin_rules">rule</a> may fit better.</span></span></h2>
+			<div class="lead">Likely the same, spelled differently. Merge or dismiss.</div>
+		</div>
+	</div>
+	<div class="tabs" id="dup-tabs">
+		<button type="button" data-kind="artists" data-click="tab">Artists <span class="badge" id="dup-a"></span></button>
+		<button type="button" data-kind="tracks" data-click="tab">Tracks <span class="badge" id="dup-t"></span></button>
+	</div>
+	<div id="dup-list" style="margin-top:16px"></div>
 {% endblock %}
