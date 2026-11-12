@@ -23,15 +23,13 @@
 						['apikeys','API Keys'],
 						['manual','Manual Scrobbling'],
 						['albumless','Tracks without Albums'],
-						['rules','Parser Rules'],
-						['aliases','Aliases'],
-						['reparse','Reparse'],
-						['duplicates','Duplicates']
+						['rules','Library']
 
 					] %}
 					{# ['import','Scrobble Import']
 					hide for now #}
-						{% if page=='admin_' + tab_url %}
+						{# Library has sub-tabs of its own, see abstracts/library.jinja #}
+						{% if page=='admin_' + tab_url or (tab_url == 'rules' and page in ['admin_rulesets','admin_aliases','admin_duplicates','admin_reparse']) %}
 							<span style="opacity:0.5;">{{ tab_name }}</span>
 						{% else %}
 							<a href="/admin_{{ tab_url }}">{{ tab_name }}</a>
