@@ -315,6 +315,10 @@ def get_duplicates(dbconn=None):
 	from . import duplicates
 	return duplicates.find_duplicates(dbconn=dbconn)
 
+def get_duplicate_counts(dbconn=None):
+	from . import duplicates
+	return duplicates.counts()
+
 def dismiss_duplicate(entity_type,ids):
 	from . import duplicates
 	duplicates.dismiss_duplicate(entity_type,ids)
