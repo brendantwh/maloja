@@ -125,7 +125,9 @@ DBTABLES = {
 			("artists_normalized",  sql.String,                                   {}), # tracks and albums: json list, artists: ''
 			("target_id",           sql.Integer,                                  {}),
 			("created_at",          sql.Integer,                                  {}),
-			("source",              sql.String,                                   {})  # rename or merge
+			("source",              sql.String,                                   {}), # rename or merge
+			("name",                sql.String,                                   {}), # spelling as it was, for display
+			("artists",             sql.String,                                   {})  # json list as it was, for display
 		],
 		'extraargs':(
 			sql.UniqueConstraint('entity_type', 'name_normalized', 'artists_normalized'),
@@ -587,11 +589,13 @@ def add_alias(entity_type: str, name: str, target_id: int, artists=None, source=
 		'artists_normalized': alias_artists_key(artists) if artists is not None else '',
 		'target_id': target_id,
 		'created_at': now(),
-		'source': source
+		'source': source,
+		'name': name,
+		'artists': json.dumps(list(artists), ensure_ascii=False) if artists is not None else ''
 	}
 	op = sqliteinsert(DB['aliases']).values(**values).on_conflict_do_update(
 		index_elements=['entity_type', 'name_normalized', 'artists_normalized'],
-		set_={k: values[k] for k in ('target_id', 'created_at', 'source')}
+		set_={k: values[k] for k in ('target_id', 'created_at', 'source', 'name', 'artists')}
 	)
 	dbconn.execute(op)
 	if entity_type == 'artist':
@@ -613,8 +617,9 @@ def list_aliases(dbconn=None):
 		result.append({
 			'id': row.id,
 			'entity_type': row.entity_type,
-			'name': row.name_normalized,
-			'artists': json.loads(row.artists_normalized) if row.artists_normalized else [],
+			# aliases from before the spelling was kept only have the normalized one
+			'name': row.name or row.name_normalized,
+			'artists': json.loads(row.artists or row.artists_normalized or '[]'),
 			'target_id': row.target_id,
 			'target': target,
 			'created_at': row.created_at,

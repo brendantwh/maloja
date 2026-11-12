@@ -106,12 +106,19 @@ def test_list_and_delete_aliases(db):
 	scrobble(1, ["Beyonce Knowles"], "Halo")
 	db.edit_artist(sqldb.get_artist_id("Beyonce Knowles"), "Beyoncé")
 	(alias,) = db.get_aliases()
-	assert (alias["entity_type"], alias["name"], alias["target"], alias["source"]) == ("artist", "beyonce knowles", "Beyoncé", "rename")
+	assert (alias["entity_type"], alias["name"], alias["target"], alias["source"]) == ("artist", "Beyonce Knowles", "Beyoncé", "rename")
 	assert sqldb.is_known_artist("Beyonce Knowles")
 	assert db.delete_alias(alias["id"])
 	assert db.get_aliases() == []
 	assert not sqldb.is_known_artist("Beyonce Knowles")
 	assert sqldb.get_artist_id("Beyonce Knowles") != sqldb.get_artist_id("Beyoncé")
+
+
+def test_aliases_keep_the_spelling_of_their_artists(db):
+	track = scrobble(1, ["Beyoncé", "JAY-Z"], "Drunk In Love (Remastered)")
+	db.edit_track(sqldb.get_track_id(track), {"title": "Drunk in Love"})
+	(alias,) = db.get_aliases()
+	assert (alias["name"], alias["artists"]) == ("Drunk In Love (Remastered)", ["Beyoncé", "JAY-Z"])
 
 
 def test_clean_db_keeps_aliases_of_existing_entities(db):
