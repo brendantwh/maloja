@@ -2,75 +2,94 @@
 {% extends "abstracts/library.jinja" %}
 {% block title %}Maloja - Aliases{% endblock %}
 
-{% import 'snippets/links.jinja' as links %}
+{# what the page shows, with links and dates worked out here #}
+{% set rows = [] %}
+{% for alias in dbc.get_aliases() %}
+	{% set t = alias.target %}
+	{% if t is none %}
+		{% set to, url = none, none %}
+	{% elif alias.entity_type == 'artist' %}
+		{% set to, url = t, mlj_uri.create_uri("/artist", {'artist': t}) %}
+	{% elif alias.entity_type == 'track' %}
+		{% set to, url = (t.artists | join(', ')) + ' – ' + t.title, mlj_uri.create_uri("/track", {'track': t}) %}
+	{% else %}
+		{% set to, url = ((t.artists | join(', ')) + ' – ' if t.artists else '') + t.albumtitle, mlj_uri.create_uri("/album", {'album': t}) %}
+	{% endif %}
+	{% set _ = rows.append({
+		'id': alias.id,
+		'type': alias.entity_type,
+		'name': alias.name,
+		'artists': alias.artists,
+		'to': to,
+		'url': url,
+		'source': alias.source or '',
+		'since': malojatime.timestamp_desc(alias.created_at, short=True) if alias.created_at else ''
+	}) %}
+{% endfor %}
 
 {% block libscripts %}
+	<script type="application/json" id="aliases-data">{{ rows | tojson }}</script>
 	<script>
-		function deleteAlias(element, id) {
-			if (!confirm('Delete this alias? Future scrobbles with that name will no longer go to this entry.')) { return; }
-			neo.xhttpreq("/apis/mlj_1/delete_alias", {'id': id}, "POST", function(req) {
-				notifyCallback(req);
-				if (req.status == 200) { element.closest('tr').remove(); }
-			}, true);
+	document.addEventListener('DOMContentLoaded', function() {
+		const { $, esc, api } = Lib;
+		let aliases = Lib.data('aliases-data'), type = 'all';
+		const SOURCES = { rename: 'rename', merge: 'merge', artists: 'artists changed' };
+
+		function render() {
+			$('alias-types').innerHTML = ['all', 'artist', 'track', 'album'].map(t => {
+				const n = t === 'all' ? aliases.length : aliases.filter(a => a.type === t).length;
+				return `<button type="button" class="chip ${t === type ? 'on' : ''}" data-click="type" data-type="${t}">${t === 'all' ? 'All' : t[0].toUpperCase() + t.slice(1) + 's'} <span class="count">${n}</span></button>`;
+			}).join('');
+			const q = $('alias-search').value.toLowerCase();
+			const shown = aliases.filter(a => (type === 'all' || a.type === type) && [a.name, a.to || '', ...a.artists].join(' ').toLowerCase().includes(q));
+			$('aliases-body').innerHTML = shown.map(a => `
+				<tr>
+					<td><span class="tag">${esc(a.type)}</span></td>
+					<td>${esc(a.name)}${a.artists.length ? `<div class="note">by ${esc(a.artists.join(', '))}</div>` : ''}</td>
+					<td class="arrow" style="width:20px">→</td>
+					<td>${a.url ? `<a href="${esc(a.url)}">${esc(a.to)}</a>` : '<span class="count">(gone)</span>'}</td>
+					<td>${a.source ? `<span class="tag">${esc(SOURCES[a.source] || a.source)}</span>` : ''}</td>
+					<td class="count">${esc(a.since)}</td>
+					<td class="row-actions"><button type="button" class="icon-btn" title="Delete" data-click="delete" data-id="${a.id}">🗑</button></td>
+				</tr>`).join('');
+			$('aliases-empty').textContent = aliases.length ? 'No aliases match.' : 'No aliases yet. They appear when you rename or merge something.';
+			$('aliases-empty').style.display = shown.length ? 'none' : '';
 		}
-		function filterAliases() {
-			const type = document.getElementById('filter_type').value;
-			const text = document.getElementById('filter_text').value.toLowerCase();
-			for (const row of document.querySelectorAll('#aliases tr[data-type]')) {
-				row.style.display = ((!type || row.dataset.type == type) && row.textContent.toLowerCase().includes(text)) ? '' : 'none';
-			}
-		}
+
+		Lib.actions({
+			type(el) { type = el.dataset.type; render(); },
+			search() { render(); },
+			delete(el) {
+				const i = aliases.findIndex(a => a.id === +el.dataset.id), [gone] = aliases.splice(i, 1);
+				render();
+				const restore = () => { aliases.splice(i, 0, gone); render(); };
+				// deleted on the server once the toast is gone, so Undo just puts it back
+				Lib.later(`"${gone.name}" no longer redirects.`, keepalive => api('delete_alias', { id: gone.id }, 'POST', { keepalive }), restore);
+			},
+		});
+
+		render();
+	});
 	</script>
 {% endblock %}
 
-{% set aliases = dbc.get_aliases() %}
-
 {% block librarycontent %}
-
-	<h2>Aliases</h2>
-	When you rename or merge an artist, track or album, or add or remove an artist on a track, Maloja remembers the old name.
-	Scrobbles that arrive with the old name go to the right place. Names are compared ignoring case and accents.
+	<div class="page-head">
+		<div class="title">
+			<h2>Aliases <span class="help" tabindex="0">?<span class="tip">When you rename or merge an artist, track or album, or add or remove an artist on a track, Maloja remembers the old name. Scrobbles that arrive with it go to the right place.<br><br>Names are compared ignoring case and accents. Deleting an alias doesn't undo the edit, it only stops future scrobbles being redirected.</span></span></h2>
+			<div class="lead">Old names Maloja learned from your edits.</div>
+		</div>
+	</div>
 	{% if not settings['LEARN_ALIASES'] %}
-	<br/><br/><b>Learning and using aliases is switched off in the settings.</b>
+	<div class="notice">Learning and using aliases is switched off in the <a class="textlink" href="/admin_settings">settings</a>. The ones below are kept, but not used.</div>
 	{% endif %}
-	<br/><br/>
-
-	<select id="filter_type" onchange="filterAliases()">
-		<option value="">All</option>
-		<option value="artist">Artists</option>
-		<option value="track">Tracks</option>
-		<option value="album">Albums</option>
-	</select>
-	<input type="text" id="filter_text" placeholder="Search" oninput="filterAliases()" />
-	<br/><br/>
-
-	{% if aliases %}
-	<table class="misc" id="aliases">
-		<tr><th>Type</th><th>Old name</th><th>With artists</th><th>Goes to</th><th>Learned from</th><th>Since</th><th></th></tr>
-		{% for alias in aliases %}
-		<tr data-type="{{ alias.entity_type }}">
-			<td>{{ alias.entity_type }}</td>
-			<td>{{ alias.name }}</td>
-			<td>{{ alias.artists | join(', ') }}</td>
-			<td>
-				{% if alias.target is none %}
-					<i>(gone)</i>
-				{% elif alias.entity_type == 'artist' %}
-					{{ links.link(alias.target) }}
-				{% elif alias.entity_type == 'track' %}
-					{{ links.links(alias.target.artists) }} – {{ links.link(alias.target) }}
-				{% else %}
-					{{ links.link(alias.target) }}
-				{% endif %}
-			</td>
-			<td>{{ alias.source or '' }}</td>
-			<td>{{ malojatime.timestamp_desc(alias.created_at, short=True) if alias.created_at else '' }}</td>
-			<td><a class="textlink" href="javascript:void(0)" onclick="deleteAlias(this, {{ alias.id }})">Delete</a></td>
-		</tr>
-		{% endfor %}
+	<div class="toolbar">
+		<input type="search" id="alias-search" placeholder="Search aliases" data-input="search">
+		<div class="chips" id="alias-types"></div>
+	</div>
+	<table class="lib">
+		<thead><tr><th style="width:90px">Type</th><th>Old name</th><th></th><th>Goes to</th><th style="width:140px">Learned from</th><th style="width:120px">Since</th><th></th></tr></thead>
+		<tbody id="aliases-body"></tbody>
 	</table>
-	{% else %}
-	No aliases yet.
-	{% endif %}
-
+	<div class="empty" id="aliases-empty" style="display:none"></div>
 {% endblock %}
