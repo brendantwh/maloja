@@ -134,6 +134,22 @@ else:
 		return None
 
 
+# results kept elsewhere that go stale with the same changes, whether or not the cache is on
+_invalidate_caches, _invalidate_entity_cache = invalidate_caches, invalidate_entity_cache
+
+def invalidate_caches(scrobbletime=None):
+	_invalidate_caches(scrobbletime)
+	_clear_derived()
+
+def invalidate_entity_cache():
+	_invalidate_entity_cache()
+	_clear_derived()
+
+def _clear_derived():
+	from . import duplicates
+	duplicates.clear_counts()
+
+
 def serialize(obj):
 	try:
 		return serialize(obj.hashable())
