@@ -179,6 +179,63 @@ const Lib = (function() {
 		});
 	}
 
+	// rules in plain words, for the rules and rule sets pages
+	// serverTypes is get_parser_rules()['types'], setnames maps rule set files to their names
+
+	const RULE_TYPES = {
+		// fields: label, kind, and the column the backend stores the field in
+		replaceartist:     { group: 'Artists', label: 'Rename an artist', short: 'Rename artist', ex: 'Kim Hyun-a → HyunA, or one name → several artists',
+		                     fields: [['When the artist is', 'text', 0], ['Change it to', 'chips', 1]], common: true },
+		belongtogether:    { group: 'Artists', label: 'Keep an artist name whole', short: 'Keep name whole', ex: 'Simon & Garfunkel stays one artist, not two',
+		                     fields: [['Artist name', 'text', 0]], common: true, hint: 'Exact spelling, including case.' },
+		replacetitle:      { group: 'Titles', label: 'Rename a track title', short: 'Rename title', ex: 'RED → Red, only for HyunA',
+		                     fields: [['When the title is', 'text', 0], ['Change it to', 'text', 1]], common: true },
+		fixartists:        { group: 'Titles', label: 'Always use these artists for a title', short: 'Fix artists', ex: 'Collab Song is always Main and Guest',
+		                     fields: [['For the title', 'text', 1], ['Use exactly these artists', 'chips', 0]], common: true, hint: 'Applies when at least one of these artists is on the scrobble.' },
+		countas:           { group: 'Charts', label: 'Count an artist towards another', short: 'Counts as', ex: 'Solo songs by a member count for the group in charts',
+		                     fields: [['Count this artist', 'text', 0], ['Towards', 'text', 1]], common: true, hint: 'Only affects charts, the scrobbles stay as they are.' },
+		addartists:        { group: 'Titles', label: 'Add artists to a title', short: 'Add artists', ex: 'Change by HyunA also gets Jun Hyung',
+		                     fields: [['For the title', 'text', 1], ['When these artists are on it', 'chips', 0], ['Add these artists', 'chips', 2]] },
+		artistintitle:     { group: 'Titles', label: 'Find an artist in the title', short: 'Artist in title', ex: '"(Areia Remix)" in a title adds Areia',
+		                     fields: [['When the title contains', 'text', 0], ['Add these artists', 'chips', 1]] },
+		replacealbumtitle: { group: 'Albums', label: 'Rename an album', short: 'Rename album', ex: 'Greatest Hits → Greatest Hits (2001)',
+		                     fields: [['When the album is', 'text', 0], ['Change it to', 'text', 1]] },
+		ignoreartist:      { group: 'Artists', label: 'Ignore an artist', short: 'Ignore artist', ex: 'Drop "Various Artists" from scrobbles',
+		                     fields: [['Artist name', 'text', 0]] },
+		notanartist:       { group: 'Artists', label: 'Not an artist after "feat."', short: 'Not an artist', ex: '"feat. In Dreams" is part of the title',
+		                     fields: [['Text', 'text', 0]], hint: 'Exact spelling, including case.' },
+	};
+	const SEP = '␟';
+
+	function ruleKit(serverTypes, setnames = {}) {
+		const types = Object.fromEntries(Object.entries(RULE_TYPES).filter(([t]) => serverTypes[t]));
+		const isList = (type, i) => serverTypes[type].lists.includes(i);
+		const info = type => types[type] || { group: 'Other', label: type, short: type,
+			fields: serverTypes[type].fields.map((f, i) => [f, isList(type, i) ? 'chips' : 'text', i]) };
+		// stored fields (lists joined with ␟) to values (lists as arrays), and back
+		const values = r => r.fields.map((f, i) => isList(r.type, i) ? f.split(SEP).filter(Boolean) : f);
+		const stored = (type, v) => v.map((x, i) => isList(type, i) ? x.join(SEP) : x);
+		function sourceLabel(source) {
+			if (!source || source === 'user') return 'you';
+			if (source === 'import') return 'imported';
+			if (source.startsWith('set:')) return setnames[source.slice(4)] || source.slice(4);
+			if (source.startsWith('file:')) return source.slice(5);
+			return source;
+		}
+		function describe(type, v) {
+			const A = '<span class="arrow">→</span>';
+			switch (type) {
+				case 'replaceartist': return `${esc(v[0])}${A}${pills(v[1])}`;
+				case 'replacetitle': case 'replacealbumtitle': case 'countas': return `${esc(v[0])}${A}${esc(v[1])}`;
+				case 'fixartists': return `${esc(v[1])}${A}${pills(v[0])}`;
+				case 'addartists': return `${esc(v[1])} <span class="count">with</span> ${pills(v[0])}${A}+ ${pills(v[2])}`;
+				case 'artistintitle': return `"${esc(v[0])}"${A}+ ${pills(v[1])}`;
+				default: return v.map(x => Array.isArray(x) ? pills(x) : esc(x)).join(A);
+			}
+		}
+		return { types, SEP, isList, scopable: type => serverTypes[type].scopable, info, values, stored, sourceLabel, describe };
+	}
+
 	document.addEventListener('DOMContentLoaded', () => {
 		const footer = document.getElementById('footer');
 		if (footer) { document.documentElement.style.setProperty('--lib-footer', footer.offsetHeight + 'px'); }
@@ -189,5 +246,5 @@ const Lib = (function() {
 		if (b) { b.textContent = n > 0 ? n : ''; }
 	}
 
-	return { $, esc, plural, pills, data, diff, trackDiff, toast, warn, api, later, openDrawer, closeDrawer, drawerOpen, chipInput, chipValues, actions, setBadge };
+	return { $, esc, plural, pills, data, diff, trackDiff, toast, warn, api, later, openDrawer, closeDrawer, drawerOpen, chipInput, chipValues, actions, setBadge, ruleKit };
 })();

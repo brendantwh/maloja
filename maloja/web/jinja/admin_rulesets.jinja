@@ -1,0 +1,88 @@
+{% set page ='admin_rulesets' %}
+{% extends "abstracts/library.jinja" %}
+{% block title %}Maloja - Rule sets{% endblock %}
+
+{% set data = dbc.get_parser_rules() %}
+
+{% block libscripts %}
+	<script type="application/json" id="sets-data">{{ {'sets': data.rulesets, 'types': data.types} | tojson }}</script>
+	<script>
+	document.addEventListener('DOMContentLoaded', function() {
+		const { $, esc, plural, toast, api } = Lib;
+		const DATA = Lib.data('sets-data');
+		const setnames = Object.fromEntries(DATA.sets.map(s => [s.file, s.name]));
+		const { info, values, describe } = Lib.ruleKit(DATA.types, setnames);
+		let sets = DATA.sets;
+		const byFile = file => sets.find(s => s.file === file);
+
+		async function refresh() {
+			sets = (await api('rules', {}, 'GET')).rulesets;
+			render();
+		}
+
+		function render() {
+			$('sets-grid').innerHTML = sets.map(s => {
+				const off = s.rules.filter(r => !r.enabled).length;
+				return `<div class="card">
+					<div class="card-head"><div class="name">${esc(s.name)}<div class="meta">${esc(s.author)} · ${plural(s.rules.length, 'rule')}</div></div>
+						<label class="switch" title="${s.active ? 'Switch off' : 'Switch on'}"><input type="checkbox" ${s.active ? 'checked' : ''} data-change="toggle-set" data-file="${esc(s.file)}"><span></span></label></div>
+					<div class="desc">${esc(s.desc)}</div>
+					<div class="card-foot"><span>${off ? `${plural(off, 'rule')} switched off` : ''}</span><a href="#" data-click="view" data-file="${esc(s.file)}">View rules →</a></div>
+				</div>`;
+			}).join('');
+			$('sets-empty').style.display = sets.length ? 'none' : '';
+		}
+
+		function openSet(file) {
+			const s = byFile(file);
+			Lib.openDrawer(s.name, `
+				<div class="lead">${esc(s.desc)}${s.active ? '' : ' <span class="count">This set is switched off.</span>'}</div>
+				<table class="lib"><tbody>${s.rules.map((r, k) => `
+					<tr class="${r.enabled ? '' : 'off'}">
+						<td style="width:46px"><label class="switch"><input type="checkbox" ${r.enabled ? 'checked' : ''} data-change="toggle-rule" data-file="${esc(file)}" data-k="${k}"><span></span></label></td>
+						<td class="dim"><div class="note" style="margin:0 0 2px">${esc(info(r.type).short)}${r.scope ? ` · only for ${esc(r.scope)}` : ''}</div>${describe(r.type, values(r))}</td>
+						<td style="width:44px;text-align:right"><button type="button" class="icon-btn" title="Copy to my rules, to change it" data-click="copy" data-file="${esc(file)}" data-k="${k}">⧉</button></td>
+					</tr>`).join('')}</tbody></table>`,
+				`<button type="button" class="btn secondary" data-click="lib-close">Close</button>`);
+		}
+
+		Lib.actions({
+			async 'toggle-set'(el) {
+				const s = byFile(el.dataset.file), on = el.checked;
+				try { await api('toggle_ruleset', { name: s.file, enabled: on }); }
+				catch (e) { el.checked = !on; return; }
+				s.active = on;
+				render();
+				toast(`${s.name} switched ${on ? 'on' : 'off'}.`);
+			},
+			view(el) { openSet(el.dataset.file); },
+			async 'toggle-rule'(el) {
+				const s = byFile(el.dataset.file), r = s.rules[+el.dataset.k], on = el.checked;
+				try { await api('toggle_ruleset_rule', { name: s.file, key: r.key, enabled: on }); }
+				catch (e) { el.checked = !on; return; }
+				r.enabled = on;
+				el.closest('tr').classList.toggle('off', !on);
+				render();
+			},
+			async copy(el) {
+				const s = byFile(el.dataset.file), r = s.rules[+el.dataset.k];
+				await api('copy_ruleset_rule', { name: s.file, key: r.key });
+				toast("Copied to your rules, where you can change it. Yours wins over the set's.");
+			},
+		});
+
+		render();
+	});
+	</script>
+{% endblock %}
+
+{% block librarycontent %}
+	<div class="page-head">
+		<div class="title">
+			<h2>Rule sets <span class="help" tabindex="0">?<span class="tip">Ready-made rules for some artists and genres, shipped with Maloja. They're read from Maloja's files, so updates reach you.<br><br>You can switch single rules off, or copy one to <a class="textlink" href="/admin_rules">your rules</a> to change it. Your rules win.</span></span></h2>
+			<div class="lead">Ready-made rules you can switch on.</div>
+		</div>
+	</div>
+	<div class="grid" id="sets-grid"></div>
+	<div class="empty" id="sets-empty" style="display:none">No rule sets found.</div>
+{% endblock %}
