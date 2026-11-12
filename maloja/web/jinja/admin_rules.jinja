@@ -1,8 +1,11 @@
 {% set page ='admin_rules' %}
 {% extends "abstracts/library.jinja" %}
-{% block title %}Maloja - Parser Rules{% endblock %}
+{% block title %}Maloja - Rules{% endblock %}
 
 {% set data = dbc.get_parser_rules() %}
+{% set setnames = {} %}
+{% for rs in data.rulesets %}{% set _ = setnames.update({rs.file: rs.name}) %}{% endfor %}
+{# links from artist and track pages open the form prefilled, see icons/rule_link.jinja #}
 {% set prefill = {
 	'type': request.query.get('type',''),
 	'fields': [request.query.getunicode('f0') or '', request.query.getunicode('f1') or '', request.query.getunicode('f2') or ''],
@@ -11,275 +14,285 @@
 } %}
 
 {% block libscripts %}
-	<style>
-		.rules-form input[type=text] { width: 300px; }
-		.rules-form td { padding: 3px 10px 3px 0; vertical-align: top; }
-		.rules-form .hint { opacity: 0.6; font-size: 80%; }
-		table.misc tr.off td { opacity: 0.4; }
-		table.misc td.fields span.field { background-color: rgba(255,255,255,0.08); padding: 1px 4px; margin-right: 4px; }
-		.testresult { margin-left: 20px; }
-		details.ruleset { margin: 4px 0 4px 20px; }
-		textarea.rulesimport { width: 600px; height: 120px; font-family: monospace; }
-	</style>
+	<script type="application/json" id="rules-data">{{ {'rules': data.rules, 'types': data.types, 'setnames': setnames, 'prefill': prefill} | tojson }}</script>
 	<script>
-		const RULE_TYPES = {{ data.types | tojson }};
-		const PREFILL = {{ prefill | tojson }};
-
-		function rulesRequest(endpoint, payload, reload=true) {
-			neo.xhttpreq("/apis/mlj_1/" + endpoint, payload, "POST", function(req) {
-				notifyCallback(req);
-				if (reload && req.status == 200) { setTimeout(function(){ window.location.reload(); }, 800); }
-			}, true);
-		}
-
-		// the form
-		function showFields(values) {
-			const type = document.getElementById('rule_type').value;
-			const info = RULE_TYPES[type];
-			document.getElementById('rule_desc').textContent = info.desc;
-			for (let i = 0; i < 3; i++) {
-				const row = document.getElementById('rule_field_row_' + i);
-				row.style.display = (i < info.fields.length) ? '' : 'none';
-				document.getElementById('rule_field_label_' + i).textContent = info.fields[i] || '';
-				document.getElementById('rule_field_hint_' + i).style.display = info.lists.includes(i) ? '' : 'none';
-				if (values) { document.getElementById('rule_field_' + i).value = values[i] || ''; }
-			}
-			document.getElementById('rule_scope_row').style.display = info.scopable ? '' : 'none';
-		}
-
-		function fillForm(id, type, fields, scope, note) {
-			document.getElementById('rule_id').value = id || '';
-			if (type) { document.getElementById('rule_type').value = type; }
-			showFields(fields);
-			document.getElementById('rule_scope').value = scope || '';
-			document.getElementById('rule_note').value = note || '';
-			document.getElementById('rule_save').textContent = id ? 'Save changes' : 'Add rule';
-			document.getElementById('rule_cancel').style.display = id ? '' : 'none';
-		}
-
-		function editRule(element) {
-			const rule = JSON.parse(element.closest('tr').dataset.rule);
-			fillForm(rule.id, rule.type, rule.fields, rule.scope, rule.note);
-			document.getElementById('rule_form_anchor').scrollIntoView();
-		}
-
-		function saveRule() {
-			const type = document.getElementById('rule_type').value;
-			const fields = [];
-			for (let i = 0; i < RULE_TYPES[type].fields.length; i++) { fields.push(document.getElementById('rule_field_' + i).value); }
-			const payload = {
-				'type': type,
-				'fields': fields,
-				'scope': RULE_TYPES[type].scopable ? document.getElementById('rule_scope').value : '',
-				'note': document.getElementById('rule_note').value
-			};
-			const id = document.getElementById('rule_id').value;
-			if (id) { payload.id = parseInt(id); rulesRequest('edit_rule', payload); }
-			else { rulesRequest('add_rule', payload); }
-		}
-
-		function insertSeparator(i) {
-			const input = document.getElementById('rule_field_' + i);
-			input.value += '␟';
-			input.focus();
-		}
+	document.addEventListener('DOMContentLoaded', function() {
+		const { $, esc, plural, pills, diff, trackDiff, toast, api } = Lib;
+		const DATA = Lib.data('rules-data');
+		const SERVER_TYPES = DATA.types;
+		const { types: TYPES, SEP, isList, scopable, info, values, stored, sourceLabel, describe } = Lib.ruleKit(SERVER_TYPES, DATA.setnames);
+		const GROUPS = ['Artists', 'Titles', 'Albums', 'Charts'];
 
 		// the list
-		function ruleOf(element) { return JSON.parse(element.closest('tr').dataset.rule); }
-		function toggleRule(element) { rulesRequest('toggle_rule', {'id': ruleOf(element).id, 'enabled': element.checked}); }
-		function deleteRule(element) {
-			if (confirm('Delete this rule?')) { rulesRequest('delete_rule', {'id': ruleOf(element).id}); }
+
+		let rules = DATA.rules, group = 'All';
+
+		async function refresh() {
+			rules = (await api('rules', {}, 'GET')).rules;
+			render();
 		}
 
-		function filterRules() {
-			const type = document.getElementById('filter_type').value;
-			const text = document.getElementById('filter_text').value.toLowerCase();
-			for (const row of document.querySelectorAll('#own_rules tr[data-rule]')) {
-				const rule = JSON.parse(row.dataset.rule);
-				const haystack = [rule.type, ...rule.fields, rule.scope || '', rule.note || ''].join(' ').toLowerCase();
-				row.style.display = ((!type || rule.type == type) && haystack.includes(text)) ? '' : 'none';
+		function render() {
+			$('rule-groups').innerHTML = ['All', ...GROUPS].map(g => {
+				const n = g === 'All' ? rules.length : rules.filter(r => info(r.type).group === g).length;
+				return `<button type="button" class="chip ${g === group ? 'on' : ''}" data-click="group" data-group="${g}">${g} <span class="count">${n}</span></button>`;
+			}).join('');
+			const q = $('rule-search').value.toLowerCase();
+			const shown = rules.filter(r => (group === 'All' || info(r.type).group === group)
+				&& [info(r.type).label, ...r.fields, r.scope || '', r.note || '', sourceLabel(r.source)].join(' ').replaceAll(SEP, ' ').toLowerCase().includes(q));
+			$('rules-body').innerHTML = shown.map(r => `
+				<tr class="${r.enabled ? '' : 'off'}">
+					<td><label class="switch" title="${r.enabled ? 'Switch off' : 'Switch on'}"><input type="checkbox" ${r.enabled ? 'checked' : ''} data-change="toggle" data-id="${r.id}"><span></span></label></td>
+					<td class="dim">${esc(info(r.type).short)}</td>
+					<td class="dim">${describe(r.type, values(r))}${r.note ? `<div class="note">${esc(r.note)}</div>` : ''}</td>
+					<td class="dim">${r.scope ? `<span class="tag scope">${esc(r.scope)}</span>` : '<span class="count">all artists</span>'}</td>
+					<td class="dim"><span class="tag">${esc(sourceLabel(r.source))}</span></td>
+					<td class="row-actions"><button type="button" class="icon-btn" title="Edit" data-click="edit" data-id="${r.id}">✎</button><button type="button" class="icon-btn" title="Delete" data-click="delete" data-id="${r.id}">🗑</button></td>
+				</tr>`).join('');
+			$('rules-empty').textContent = rules.length ? 'No rules match.' : 'No rules of your own yet. Add one, or switch on a rule set.';
+			$('rules-empty').style.display = shown.length ? 'none' : '';
+		}
+
+		const ruleById = id => rules.find(r => r.id === +id);
+
+		// new and edit
+
+		let editing = null;   // { id, type }
+
+		function openPicker() {
+			editing = { id: null, type: null };
+			const intent = t => `<button type="button" class="intent" data-click="choose" data-type="${t}">${esc(TYPES[t].label)}<span class="ex">${esc(TYPES[t].ex)}</span></button>`;
+			const common = Object.keys(TYPES).filter(t => TYPES[t].common), more = Object.keys(TYPES).filter(t => !TYPES[t].common);
+			Lib.openDrawer('New rule', `
+				<div class="field"><label>What do you want to do?</label></div>
+				<div class="intents">${common.map(intent).join('')}</div>
+				<details class="more-intents"><summary>More kinds of rules</summary>
+					<div class="intents" style="margin-top:10px">${more.map(intent).join('')}</div>
+				</details>`);
+		}
+
+		function openForm(type, v, scope, note) {
+			const T = info(type);
+			const back = editing.id ? '' : `<button type="button" class="btn ghost" data-click="picker">← Change</button>`;
+			let html = `<div class="chosen"><span>${esc(T.label)}</span>${back}</div>`;
+			for (const [label, kind, i] of T.fields) {
+				const value = v ? v[i] : '';
+				html += `<div class="field"><label>${esc(label)}</label>${kind === 'chips'
+					? `<div class="chipinput" data-field="${i}"></div><div class="hint">Type a name and press Enter. Several names mean several artists.</div>`
+					: `<input type="text" data-field="${i}" value="${esc(value)}">`}</div>`;
+			}
+			if (scopable(type)) {
+				html += `<div class="field"><label>Only for artist <span class="count">(optional)</span></label><input type="text" id="rule-scope" placeholder="All artists" value="${esc(scope || '')}"><div class="hint">The rule only applies when this artist is on the scrobble.</div></div>`;
+			}
+			html += `<div class="field"><label>Note <span class="count">(optional)</span></label><input type="text" id="rule-note" value="${esc(note || '')}"></div>`;
+			if (T.hint) html += `<div class="hint" style="margin-bottom:16px">${esc(T.hint)}</div>`;
+			html += `<div class="preview"><div class="label">Preview</div><div id="rule-preview"></div></div>`;
+			const foot = `<button type="button" class="btn secondary" data-click="lib-close">Cancel</button><button type="button" class="btn" data-click="save">${editing.id ? 'Save changes' : 'Add rule'}</button>`;
+			Lib.openDrawer(editing.id ? 'Edit rule' : 'New rule', html, foot, preview);
+			for (const box of document.querySelectorAll('#lib-drawer .chipinput')) {
+				Lib.chipInput(box, v ? v[+box.dataset.field] : [], preview);
+			}
+			preview();
+			const first = $('lib-drawer-body').querySelector('input');
+			if (first) first.focus();
+		}
+
+		function formValues() {
+			return SERVER_TYPES[editing.type].fields.map((_, i) => {
+				const el = $('lib-drawer-body').querySelector(`[data-field="${i}"]`);
+				return el.classList.contains('chipinput') ? Lib.chipValues(el) : el.value.trim();
+			});
+		}
+		const filled = v => v.every(x => Array.isArray(x) ? x.length : x);
+
+		function preview() {
+			const box = $('rule-preview');
+			if (!box) return;
+			const v = formValues(), scope = $('rule-scope') ? $('rule-scope').value.trim() : '';
+			if (!filled(v)) { box.innerHTML = '<span class="count">Fill in the fields to see an example.</span>'; return; }
+			const who = scope || 'Any artist', track = (artists, title) => ({ artists, title });
+			const show = (a, b) => {
+				const [l, r] = trackDiff(a, b);
+				box.innerHTML = `<div class="row">${l}</div><div class="row"><span class="arrow" style="margin-left:0">→</span>${r}</div>`;
+			};
+			const say = html => { box.innerHTML = `<div class="row">${html}</div>`; };
+			switch (editing.type) {
+				case 'replaceartist': return show(track([v[0]], 'Song'), track(v[1], 'Song'));
+				case 'replacetitle': return show(track([who], v[0]), track([who], v[1]));
+				case 'replacealbumtitle': { const [l, r] = diff(v[0], v[1]); return say(`Album: ${l}</div><div class="row"><span class="arrow" style="margin-left:0">→</span>Album: ${r}`); }
+				case 'fixartists': return show(track([v[0][0]], v[1]), track(v[0], v[1]));
+				case 'addartists': return show(track(v[0], v[1]), track([...v[0], ...v[2]], v[1]));
+				case 'artistintitle': return show(track([who], `Song (${v[0]})`), track([who, ...v[1]], `Song (${v[0]})`));
+				case 'belongtogether': return say(`${esc(v[0])} stays <b>one</b> artist, instead of being split.`);
+				case 'countas': return say(`In charts, scrobbles of ${esc(v[0])} also count for ${esc(v[1])}.`);
+				case 'ignoreartist': return say(`${esc(v[0])} is dropped from scrobbles.`);
+				case 'notanartist': return say(`"feat. ${esc(v[0])}" stays in the title and doesn't become an artist.`);
+				default: return say(describe(editing.type, v));
 			}
 		}
 
-		// predefined sets
-		function toggleRuleset(element, name) { rulesRequest('toggle_ruleset', {'name': name, 'enabled': element.checked}); }
-		function toggleSetRule(element, name) { rulesRequest('toggle_ruleset_rule', {'name': name, 'key': ruleOf(element).key, 'enabled': element.checked}); }
-		function copySetRule(element, name) { rulesRequest('copy_ruleset_rule', {'name': name, 'key': ruleOf(element).key}); }
-
-		// test box
-		function testRules() {
+		async function save() {
+			const v = formValues();
+			if (!filled(v)) { Lib.warn('Fill in all fields first.'); return; }
 			const payload = {
-				'artists': document.getElementById('test_artists').value,
-				'title': document.getElementById('test_title').value,
-				'album': document.getElementById('test_album').value
+				type: editing.type,
+				fields: stored(editing.type, v),
+				scope: $('rule-scope') ? $('rule-scope').value.trim() : '',
+				note: $('rule-note').value.trim(),
 			};
-			neo.xhttpreq("/apis/mlj_1/test_rules", payload, "POST", function(req) {
-				const out = document.getElementById('test_result');
-				out.replaceChildren();
-				if (req.status != 200) { notifyCallback(req); return; }
-				const r = req.response;
-				const line = function(label, value) {
-					const div = document.createElement('div');
-					const b = document.createElement('b');
-					b.textContent = label + ': ';
-					div.append(b, document.createTextNode(value));
-					out.append(div);
-				};
-				line('Artists', r.artists.join(' | '));
-				line('Title', r.title);
-				if (r.album) { line('Album', r.album); }
-				const describe = function(rule) {
-					return rule.type + ' ' + rule.fields.join(' → ') + (rule.scope ? ' (only for ' + rule.scope + ')' : '') + '  [' + (rule.source || 'your rules') + ']';
-				};
-				line('Rules that fired', r.rules.length ? '' : 'none');
-				for (const rule of r.rules) { line('•', describe(rule)); }
-				for (const rule of r.countas) { line('In charts', describe(rule)); }
-			}, true);
+			if (editing.id) {
+				await api('edit_rule', { ...payload, id: editing.id });
+				toast('Rule saved. It applies to new scrobbles now.');
+			} else {
+				await api('add_rule', payload);
+				toast('Rule added. It applies to new scrobbles now.');
+			}
+			Lib.closeDrawer();
+			group = 'All';
+			await refresh();
+		}
+
+		// try a scrobble
+
+		let tryTimer = null, tryCount = 0;
+		function openTry() {
+			Lib.openDrawer('Try a scrobble', `
+				<div class="lead">See how a scrobble would be stored with the current rules. Nothing is saved.</div>
+				<div class="field"><label>Artists, as your player sends them</label><input type="text" id="try-artists" placeholder="Simon & Garfunkel"></div>
+				<div class="field"><label>Title</label><input type="text" id="try-title" placeholder="The Boxer"></div>
+				<div class="field"><label>Album <span class="count">(optional)</span></label><input type="text" id="try-album"></div>
+				<div class="preview" id="try-result"><span class="count">Type an artist and a title.</span></div>`,
+				`<button type="button" class="btn secondary" data-click="lib-close">Close</button>`,
+				() => { clearTimeout(tryTimer); tryTimer = setTimeout(runTry, 300); });
+			$('try-artists').focus();
+		}
+		async function runTry() {
+			const out = $('try-result');
+			if (!out) return;
+			const artists = $('try-artists').value.trim(), title = $('try-title').value.trim(), album = $('try-album').value.trim();
+			if (!artists || !title) { out.innerHTML = '<span class="count">Type an artist and a title.</span>'; return; }
+			const mine = ++tryCount;
+			let r;
+			try { r = await api('test_rules', { artists, title, album }, 'POST', { quiet: true }); }
+			catch (e) { if (mine === tryCount) out.innerHTML = `<span class="count">${esc(e.message)}</span>`; return; }
+			if (mine !== tryCount || !$('try-result')) return;
+			const [l, rr] = trackDiff({ artists: [artists], title }, { artists: r.artists, title: r.title });
+			const fired = rule => `<div class="rule"><span class="tag">${esc(info(rule.type).short)}</span> ${describe(rule.type, values(rule))} ${rule.scope ? `<span class="tag scope">${esc(rule.scope)}</span>` : ''} <span class="count">· ${esc(rule.source && rule.source !== 'user' ? sourceLabel(rule.source) : 'your rule')}</span></div>`;
+			out.innerHTML = `
+				<div class="label">Sent</div><div class="row">${l}${album ? ` <span class="count">· ${esc(album)}</span>` : ''}</div>
+				<div class="label" style="margin-top:10px">Stored as</div><div class="row">${rr}${r.album ? ` <span class="count">· ${esc(r.album)}</span>` : ''}</div>
+				<div class="row count" style="margin-top:4px">${plural(r.artists.length, 'artist')}: ${pills(r.artists)}</div>
+				<div class="label" style="margin-top:12px">Rules that fired</div>
+				<div class="fired">${r.rules.length ? r.rules.map(fired).join('') : '<span class="count">None, the built-in parsing did it all.</span>'}</div>
+				${r.countas.length ? `<div class="label" style="margin-top:12px">In charts</div><div class="fired">${r.countas.map(fired).join('')}</div>` : ''}`;
 		}
 
 		// import
-		function readRulesFile(input) {
-			const reader = new FileReader();
-			reader.onload = function() { document.getElementById('import_text').value = reader.result; };
-			reader.readAsText(input.files[0]);
+
+		function openImport() {
+			Lib.openDrawer('Import rules', `
+				<div class="field"><label>Rule file</label><input type="file" id="import-file" accept=".tsv,.txt,text/tab-separated-values"></div>
+				<div class="field"><label>Or paste rules</label><textarea rows="8" class="mono" id="import-text" style="width:100%" placeholder="replacetitle&#9;RED&#9;Red&#9;artist=HyunA"></textarea>
+				<div class="hint">One rule per line, columns separated by tabs (the format in rules.info). Rules you already have are skipped.</div>
+				<div class="errors" id="import-errors"></div></div>`,
+				`<button type="button" class="btn secondary" data-click="lib-close">Cancel</button><button type="button" class="btn" data-click="do-import">Import</button>`);
+			$('import-file').onchange = function() {
+				const reader = new FileReader();
+				reader.onload = () => { $('import-text').value = reader.result; };
+				reader.readAsText(this.files[0]);
+			};
 		}
-		function importRules() {
-			neo.xhttpreq("/apis/mlj_1/import_rules_tsv", {'text': document.getElementById('import_text').value}, "POST", function(req) {
-				notifyCallback(req);
-				if (req.status == 200) {
-					const errors = req.response.errors;
-					if (errors.length) { alert("Some lines were not imported:\n\n" + errors.join("\n")); }
-					window.location.reload();
-				}
-			}, true);
+		async function doImport() {
+			const text = $('import-text').value;
+			if (!text.trim()) { Lib.warn('Pick a file or paste some rules first.'); return; }
+			const r = await api('import_rules_tsv', { text });
+			await refresh();
+			if (r.errors.length) {
+				$('import-errors').textContent = `${plural(r.added, 'rule')} added, ${r.existing} already there. These lines were not imported:\n\n` + r.errors.join('\n');
+			} else {
+				Lib.closeDrawer();
+				toast(`${plural(r.added, 'rule')} added, ${r.existing} already there.`);
+			}
 		}
 
-		document.addEventListener("DOMContentLoaded", function() {
-			const prefilled = PREFILL.type && RULE_TYPES[PREFILL.type];
-			fillForm(null, prefilled ? PREFILL.type : null, prefilled ? PREFILL.fields : null, PREFILL.scope, PREFILL.note);
-			if (prefilled) { document.getElementById('rule_form_anchor').scrollIntoView(); }
+		Lib.actions({
+			group(el) { group = el.dataset.group; render(); },
+			search() { render(); },
+			async toggle(el) {
+				const r = ruleById(el.dataset.id), on = el.checked;
+				try { await api('toggle_rule', { id: r.id, enabled: on }); }
+				catch (e) { el.checked = !on; return; }
+				r.enabled = on;
+				render();
+				toast(on ? 'Rule switched on.' : 'Rule switched off.');
+			},
+			edit(el) {
+				const r = ruleById(el.dataset.id);
+				editing = { id: r.id, type: r.type };
+				openForm(r.type, values(r), r.scope, r.note);
+			},
+			async delete(el) {
+				const r = ruleById(el.dataset.id);
+				await api('delete_rule', { id: r.id });
+				await refresh();
+				// it's gone on the server, so undo adds it again
+				toast('Rule deleted.', { undo: async () => {
+					const { id } = await api('add_rule', { type: r.type, fields: r.fields, scope: r.scope || '', note: r.note });
+					if (!r.enabled) await api('toggle_rule', { id, enabled: false });
+					await refresh();
+				} });
+			},
+			'new': openPicker,
+			picker: openPicker,
+			choose(el) { editing.type = el.dataset.type; openForm(editing.type); },
+			save,
+			'try': openTry,
+			'import': openImport,
+			'do-import': doImport,
+			async reload() {
+				await api('reload_rules');
+				await refresh();
+				toast('Rule files reloaded.');
+			},
 		});
+
+		render();
+
+		const P = DATA.prefill;
+		if (P.type && SERVER_TYPES[P.type]) {
+			editing = { id: null, type: P.type };
+			const v = SERVER_TYPES[P.type].fields.map((_, i) => isList(P.type, i) ? P.fields[i].split(SEP).filter(Boolean) : P.fields[i]);
+			openForm(P.type, v, P.scope, P.note);
+		}
+	});
 	</script>
 {% endblock %}
 
-{% macro fields(rule) -%}
-	{%- for f in rule.fields %}<span class="field">{{ f }}</span>{% endfor -%}
-{%- endmacro %}
-
 {% block librarycontent %}
-
-	<h2>Try it</h2>
-	See how a scrobble would be parsed with the current rules.
-	<br/><br/>
-	<table class="rules-form">
-		<tr><td>Artists</td><td><input type="text" id="test_artists" placeholder="as sent by your player, e.g. Simon & Garfunkel" /></td></tr>
-		<tr><td>Title</td><td><input type="text" id="test_title" /></td></tr>
-		<tr><td>Album</td><td><input type="text" id="test_album" placeholder="optional" /></td></tr>
-		<tr><td></td><td><button type="button" onclick="testRules()">Test</button></td></tr>
-	</table>
-	<div id="test_result" class="testresult"></div>
-
-	<h2 id="rule_form_anchor">Add a rule</h2>
-	Changes apply to new scrobbles right away. To apply them to scrobbles you already have, use <a class="textlink" href="/admin_reparse">Reparse</a>.
-	<br/><br/>
-	<input type="hidden" id="rule_id" />
-	<table class="rules-form">
-		<tr>
-			<td>Type</td>
-			<td>
-				<select id="rule_type" onchange="showFields(null)">
-					{% for t in data.types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
-				</select>
-				<div class="hint" id="rule_desc"></div>
-			</td>
-		</tr>
-		{% for i in range(3) %}
-		<tr id="rule_field_row_{{ i }}">
-			<td id="rule_field_label_{{ i }}"></td>
-			<td>
-				<input type="text" id="rule_field_{{ i }}" />
-				<span id="rule_field_hint_{{ i }}"><button type="button" onclick="insertSeparator({{ i }})" title="separates several artists">␟</button> <span class="hint">separate several artists with ␟</span></span>
-			</td>
-		</tr>
-		{% endfor %}
-		<tr id="rule_scope_row">
-			<td>Only for artist</td>
-			<td><input type="text" id="rule_scope" placeholder="leave empty for all artists" /></td>
-		</tr>
-		<tr><td>Note</td><td><input type="text" id="rule_note" placeholder="optional" /></td></tr>
-		<tr><td></td><td>
-			<button type="button" id="rule_save" onclick="saveRule()">Add rule</button>
-			<button type="button" id="rule_cancel" onclick="fillForm(null)" style="display:none;">Cancel</button>
-		</td></tr>
-	</table>
-
-	<h2>Your rules</h2>
-	<select id="filter_type" onchange="filterRules()">
-		<option value="">All types</option>
-		{% for t in data.types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
-	</select>
-	<input type="text" id="filter_text" placeholder="Search" oninput="filterRules()" />
-	<br/><br/>
-	{% if data.rules %}
-	<table class="misc" id="own_rules">
-		<tr><th>On</th><th>Type</th><th>Rule</th><th>Only for</th><th>From</th><th>Note</th><th></th></tr>
-		{% for rule in data.rules %}
-		<tr data-rule="{{ rule | tojson | forceescape }}" class="{{ '' if rule.enabled else 'off' }}">
-			<td><input type="checkbox" {{ 'checked' if rule.enabled }} onchange="toggleRule(this)" /></td>
-			<td>{{ rule.type }}</td>
-			<td class="fields">{{ fields(rule) }}</td>
-			<td>{{ rule.scope or '' }}</td>
-			<td>{{ rule.source }}</td>
-			<td>{{ rule.note }}</td>
-			<td>
-				<a class="textlink" href="javascript:void(0)" onclick="editRule(this)">Edit</a>
-				<a class="textlink" href="javascript:void(0)" onclick="deleteRule(this)">Delete</a>
-			</td>
-		</tr>
-		{% endfor %}
-	</table>
-	{% else %}
-	You have no rules of your own yet.
-	{% endif %}
-	<br/>
-	<span class="hint">belongtogether and notanartist match the exact spelling, all other rules ignore case.</span>
-
-	<h2>Import and export</h2>
-	Paste rules in the tab-separated format (see <span class="stats">rules.info</span>), or pick a file. Rules you already have are skipped.
-	You can also drop <span class="stats">.tsv</span> files into the rules folder: they are imported on the next start or reload, and renamed to <span class="stats">.tsv.imported</span>.
-	<br/><br/>
-	<input type="file" accept=".tsv,.txt,text/tab-separated-values" onchange="readRulesFile(this)" />
-	<br/>
-	<textarea class="rulesimport" id="import_text" placeholder="replacetitle&#9;RED&#9;Red&#9;artist=HyunA"></textarea>
-	<br/>
-	<button type="button" onclick="importRules()">Import</button>
-	<button type="button" onclick="rulesRequest('reload_rules', {})">Reload rule files</button>
-	<a class="textlink" href="/apis/mlj_1/export_rules">Export your rules</a>
-
-	<h2>Predefined rule sets</h2>
-	Rule sets are read from the files that come with Maloja, so updates reach you. You can switch single rules off, or copy one to your rules to change it (yours win).
-	<br/><br/>
-	{% for rs in data.rulesets %}
-	<div>
-		<input type="checkbox" {{ 'checked' if rs.active }} onchange="toggleRuleset(this, {{ rs.file | tojson | forceescape }})" />
-		<b>{{ rs.name }}</b> by {{ rs.author }}: {{ rs.desc }}
-		<details class="ruleset">
-			<summary>{{ rs.rules | length }} rules</summary>
-			<table class="misc">
-				{% for rule in rs.rules %}
-				<tr data-rule="{{ rule | tojson | forceescape }}" class="{{ '' if rule.enabled else 'off' }}">
-					<td><input type="checkbox" {{ 'checked' if rule.enabled }} onchange="toggleSetRule(this, {{ rs.file | tojson | forceescape }})" /></td>
-					<td>{{ rule.type }}</td>
-					<td class="fields">{{ fields(rule) }}</td>
-					<td>{{ rule.scope or '' }}</td>
-					<td><a class="textlink" href="javascript:void(0)" onclick="copySetRule(this, {{ rs.file | tojson | forceescape }})">Copy to my rules</a></td>
-				</tr>
-				{% endfor %}
-			</table>
-		</details>
+	<div class="page-head">
+		<div class="title">
+			<h2>Rules <span class="help" tabindex="0">?<span class="tip">Rules change how incoming scrobbles are read: fix spellings, keep band names whole, add missing artists.<br><br>They apply to new scrobbles right away. To apply them to scrobbles you already have, use <a class="textlink" href="/admin_reparse">Reparse</a>.<br><br>Names are compared ignoring case, except where a rule says otherwise. <code>.tsv</code> files dropped into the rules folder are imported on the next start or reload.</span></span></h2>
+			<div class="lead">Your own fixes for how scrobbles are read.</div>
+		</div>
+		<div class="actions">
+			<button type="button" class="btn secondary" data-click="try">Try a scrobble</button>
+			<button type="button" class="btn" data-click="new">+ New rule</button>
+			<button type="button" class="icon-btn" style="font-size:20px" data-menu="rules-menu" title="More">⋯</button>
+			<div class="menu" id="rules-menu">
+				<button type="button" data-click="import">Import rules…</button>
+				<a href="/apis/mlj_1/export_rules" class="no-intercept">Export my rules</a>
+				<div class="sep"></div>
+				<button type="button" data-click="reload">Reload rule files</button>
+			</div>
+		</div>
 	</div>
-	{% else %}
-	No predefined rule sets found.
-	{% endfor %}
-
+	<div class="toolbar">
+		<input type="search" id="rule-search" placeholder="Search rules" data-input="search">
+		<div class="chips" id="rule-groups"></div>
+	</div>
+	<table class="lib">
+		<thead><tr><th style="width:56px">On</th><th style="width:150px">What</th><th>Rule</th><th style="width:150px">Only for</th><th style="width:140px">From</th><th></th></tr></thead>
+		<tbody id="rules-body"></tbody>
+	</table>
+	<div class="empty" id="rules-empty" style="display:none"></div>
 {% endblock %}
