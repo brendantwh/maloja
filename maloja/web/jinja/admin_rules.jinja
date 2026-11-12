@@ -1,5 +1,5 @@
 {% set page ='admin_rules' %}
-{% extends "abstracts/admin.jinja" %}
+{% extends "abstracts/library.jinja" %}
 {% block title %}Maloja - Parser Rules{% endblock %}
 
 {% set data = dbc.get_parser_rules() %}
@@ -10,7 +10,7 @@
 	'note': request.query.getunicode('note') or ''
 } %}
 
-{% block scripts %}
+{% block libscripts %}
 	<style>
 		.rules-form input[type=text] { width: 300px; }
 		.rules-form td { padding: 3px 10px 3px 0; vertical-align: top; }
@@ -166,7 +166,7 @@
 	{%- for f in rule.fields %}<span class="field">{{ f }}</span>{% endfor -%}
 {%- endmacro %}
 
-{% block maincontent %}
+{% block librarycontent %}
 
 	<h2>Try it</h2>
 	See how a scrobble would be parsed with the current rules.

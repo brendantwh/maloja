@@ -1,8 +1,8 @@
 {% set page ='admin_reparse' %}
-{% extends "abstracts/admin.jinja" %}
+{% extends "abstracts/library.jinja" %}
 {% block title %}Maloja - Reparse{% endblock %}
 
-{% block scripts %}
+{% block libscripts %}
 	<style>
 		#reparse_groups h3 { margin-bottom: 4px; }
 		#reparse_groups table.misc td { vertical-align: top; }
@@ -132,7 +132,7 @@
 	</script>
 {% endblock %}
 
-{% block maincontent %}
+{% block librarycontent %}
 
 	<h2>Reparse existing scrobbles</h2>
 	New rules and parser settings only apply to new scrobbles. This applies them to the scrobbles you already have, using the raw data Maloja stored when each scrobble arrived.

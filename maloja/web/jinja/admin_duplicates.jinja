@@ -1,10 +1,10 @@
 {% set page ='admin_duplicates' %}
-{% extends "abstracts/admin.jinja" %}
+{% extends "abstracts/library.jinja" %}
 {% block title %}Maloja - Duplicates{% endblock %}
 
 {% import 'snippets/links.jinja' as links %}
 
-{% block scripts %}
+{% block libscripts %}
 	<style>
 		div.duplicate { margin: 0 0 20px 20px; }
 		div.duplicate table.misc { margin-left: 0; }
@@ -69,7 +69,7 @@
 	</div>
 {% endmacro %}
 
-{% block maincontent %}
+{% block librarycontent %}
 
 	<h2>Possible duplicates</h2>
 	These look like the same artist or track under different spellings, for example from different players.

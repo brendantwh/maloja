@@ -1,10 +1,10 @@
 {% set page ='admin_aliases' %}
-{% extends "abstracts/admin.jinja" %}
+{% extends "abstracts/library.jinja" %}
 {% block title %}Maloja - Aliases{% endblock %}
 
 {% import 'snippets/links.jinja' as links %}
 
-{% block scripts %}
+{% block libscripts %}
 	<script>
 		function deleteAlias(element, id) {
 			if (!confirm('Delete this alias? Future scrobbles with that name will no longer go to this entry.')) { return; }
@@ -25,7 +25,7 @@
 
 {% set aliases = dbc.get_aliases() %}
 
-{% block maincontent %}
+{% block librarycontent %}
 
 	<h2>Aliases</h2>
 	When you rename or merge an artist, track or album, or add or remove an artist on a track, Maloja remembers the old name.
