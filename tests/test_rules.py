@@ -128,6 +128,15 @@ def test_tsv_round_trip(folder):
 	assert rules.import_tsv(text)["existing"] == 1
 
 
+def test_tsv_round_trip_keeps_quotes(folder):
+	rules.add_rule("replaceartist", ['"Weird Al" Yankovic', "Weird Al Yankovic"])
+	text = rules.export_tsv()
+	for rule in rules.list_rules():
+		rules.delete_rule(rule["id"])
+	assert rules.import_tsv(text)["added"] == 1
+	assert [r.fields for r in rules.load_rules()] == [('"Weird Al" Yankovic', "Weird Al Yankovic")]
+
+
 def test_invalid_rules_are_refused(folder):
 	with pytest.raises(rules.RuleError):
 		rules.add_rule("replaceartist", ["A", "B"], scope="C")

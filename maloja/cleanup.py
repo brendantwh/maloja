@@ -43,7 +43,8 @@ class Rule:
 def parse_rules_tsv(text, source=None):
 	"""Parse rules in the TSV format (see rules.info). Returns (rules, errors)."""
 	rules, errors = [], []
-	for number, entry in enumerate(csv.reader(io.StringIO(text), delimiter="\t"), start=1):
+	# plain tabs, no quoting: a '"' is part of the text (as in "Weird Al" Yankovic), never a csv quote
+	for number, entry in enumerate(csv.reader(io.StringIO(text), delimiter="\t", quoting=csv.QUOTE_NONE), start=1):
 		# empty columns are dropped, so columns can be lined up with several tabs
 		entry = [col for col in entry if col]
 		if not entry or entry[0].startswith('#'):
