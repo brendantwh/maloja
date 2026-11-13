@@ -158,6 +158,14 @@ def test_parse_rules_tsv():
 	assert errors == ["line 2: replaceartist can't be limited to an artist"]
 
 
+def test_parse_rules_tsv_keeps_quotes():
+	# a quote is text, and an unmatched one doesn't swallow the lines after it
+	text = 'replacetitle\t"Heroes"\tHeroes\nreplaceartist\t"Weird Al" Yankovic\tWeird Al Yankovic\nreplacetitle\t"Oops\tOops\nreplacetitle\tRED\tRed\n'
+	rules, errors = cleanup.parse_rules_tsv(text)
+	assert [r.fields for r in rules] == [('"Heroes"', "Heroes"), ('"Weird Al" Yankovic', "Weird Al Yankovic"), ('"Oops', "Oops"), ("RED", "Red")]
+	assert errors == []
+
+
 def test_explain_lists_fired_rules(agent_with_rules):
 	agent = agent_with_rules(
 		("replaceartist", "Old", "New"),
