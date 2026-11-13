@@ -134,6 +134,14 @@ errors = {
 			'desc':str(e)
 		}
 	}),
+	reparse.PreviewOutdated: lambda e: (409,{
+		"status":"failure",
+		"error":{
+			'type':'preview_outdated',
+			'value':None,
+			'desc':str(e)
+		}
+	}),
 	images.MalformedB64: lambda e: (400,{
 		"status":"failure",
 		"error":{
