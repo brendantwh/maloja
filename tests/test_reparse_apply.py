@@ -98,3 +98,28 @@ def test_only_one_job_at_a_time(seeded):
 	release.set()
 	reparse.wait_for_job(5)
 	assert reparse.job_status()["state"] == "done"
+
+
+def test_apply_needs_a_preview(seeded):
+	reparse._start("applying", lambda: {"state": "done"})
+	reparse.wait_for_job(5)
+	with pytest.raises(reparse.PreviewOutdated):
+		reparse.start_apply()
+
+
+def test_apply_refuses_outdated_preview_after_rule_change(seeded, db):
+	reparse.start_preview()
+	reparse.wait_for_job(5)
+	rules.add_rule("replacetitle", ["Tune", "Tune!"])
+	db.cla.set_rules(rules.load_rules())
+	with pytest.raises(reparse.PreviewOutdated):
+		reparse.start_apply()
+	assert reparse.job_status()["state"] == "ready"
+
+
+def test_apply_refuses_outdated_preview_after_setting_change(seeded, settings):
+	reparse.start_preview()
+	reparse.wait_for_job(5)
+	settings(TITLE_STRIP_FEAT=True)
+	with pytest.raises(reparse.PreviewOutdated):
+		reparse.start_apply()
