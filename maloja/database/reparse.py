@@ -87,6 +87,7 @@ def apply_reparse(skip_track_ids=(), reorder=False, progress=None, batch_size=50
 		batch = timestamps[start:start + batch_size]
 		try:
 			with sqldb.SCROBBLE_LOCK, sqldb.engine.begin() as conn:
+				old_albums = {}  # old track -> its album, read once per batch
 				rows = conn.execute(sql.select(table.c.timestamp, table.c.track_id, table.c.rawscrobble).where(table.c.timestamp.in_(batch))).all()
 				for row in rows:
 					counts['total'] += 1
@@ -109,6 +110,12 @@ def apply_reparse(skip_track_ids=(), reorder=False, progress=None, batch_size=50
 					new_id = sqldb.get_track_id(newtrack, dbconn=conn)
 					if new_id != row.track_id:
 						conn.execute(table.update().where(table.c.timestamp == row.timestamp).values(track_id=new_id))
+						# the raw data often has no album, but the old track may have one (set by hand or by a rule):
+						# it moves along unless the new track already has an album, else clean_db would delete it
+						if row.track_id not in old_albums:
+							old_albums[row.track_id] = conn.execute(sql.select(DB['tracks'].c.album_id).where(DB['tracks'].c.id == row.track_id)).scalar()
+						if old_albums[row.track_id] is not None:
+							sqldb.add_track_to_album(new_id, old_albums[row.track_id], replace=False, dbconn=conn)
 						flows[row.track_id][new_id] += 1
 						counts['moved'] += 1
 						continue
