@@ -148,7 +148,11 @@ def import_rule_files(dbconn=None):
 			done = lambda: os.remove(path)
 		else:
 			for rule in _read_file(path, name):
-				imported += bool(add_rule(rule.type, rule.fields, rule.scope, origin=f"file:{name}", dbconn=dbconn))
+				# a bad line is skipped, it mustn't stop the other rules (or the server start)
+				try:
+					imported += bool(add_rule(rule.type, rule.fields, rule.scope, origin=f"file:{name}", dbconn=dbconn))
+				except RuleError as e:
+					log(f"Rule file {name}, skipped {rule.type} rule: {e}", color='red')
 			log(f"Imported rule file {name}")
 			target = path + ".imported"
 			if os.path.exists(target):
