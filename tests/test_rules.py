@@ -50,6 +50,18 @@ def test_bad_line_in_rule_file_is_skipped(folder):
 	assert sorted(os.listdir(data_dir["rules"]())) == ["mine.tsv.imported", "predefined"]
 
 
+def test_failed_import_leaves_files_in_place(folder):
+	folder("a.tsv", "replacetitle\tRED\tRed\n")
+	with open(data_dir["rules"]("b.tsv"), "wb") as f:
+		f.write(b"replacetitle\t\xff\tRed\n")
+	with pytest.raises(UnicodeDecodeError):
+		rules.load_rules(import_files=True)
+	# nothing was committed, so the files must still be there to be read again
+	assert sorted(os.listdir(data_dir["rules"]())) == ["a.tsv", "b.tsv", "predefined"]
+	with sqldb.engine.connect() as conn:
+		assert conn.execute(sql.select(sqldb.DB["rules"])).all() == []
+
+
 def test_symlink_switches_set_on(folder):
 	os.symlink(data_dir["rules"]("predefined", "test_set.tsv"), data_dir["rules"]("test_set.tsv"))
 	loaded = rules.load_rules(import_files=True)
