@@ -358,19 +358,20 @@ class CleanerAgent:
 		patterns = []
 		for delimiter in malojaconfig["DELIMITERS_FEAT"]:
 			patterns += [
-				r" [\(\[]" + re.escape(delimiter) + r" (.*?)[\)\]]",
-				r" - " + re.escape(delimiter) + r" (.*)",
+				(r" [\(\[]" + re.escape(delimiter) + r" (.*?)[\)\]]", re.IGNORECASE),
+				(r" - " + re.escape(delimiter) + r" (.*)", re.IGNORECASE),
 			]
 			# without brackets or a dash, bare words like "ft" or "feat" are too often part of the title
 			if delimiter.endswith(".") or delimiter.lower() == "featuring":
-				patterns.append(r" " + re.escape(delimiter) + r" (.*)")
-		# words like "with" are only a delimiter in brackets, e.g. Spotify's "One Kiss (with Dua Lipa)"
+				patterns.append((r" " + re.escape(delimiter) + r" (.*)", re.IGNORECASE))
+		# words like "with" are only a delimiter in brackets, e.g. Spotify's "One Kiss (with Dua Lipa)",
+		# and only spelled exactly as set: "Stay (With Me)" is part of the title, not an artist "Me"
 		for delimiter in malojaconfig["DELIMITERS_FEAT_TITLE"]:
-			patterns.append(r" [\(\[]" + re.escape(delimiter) + r" (.*?)[\)\]]")
+			patterns.append((r" [\(\[]" + re.escape(delimiter) + r" (.*?)[\)\]]", 0))
 		original = title
 		found = []
-		for pattern in patterns:
-			matches = re.finditer(pattern,title,flags=re.IGNORECASE)
+		for pattern,flags in patterns:
+			matches = re.finditer(pattern,title,flags=flags)
 			for match in matches:
 				title = match.re.sub('',match.string) # Remove matched part
 				found.append((original.find(match.group(0)),self.parseArtists(match.group(1)))) # Parse matched artist string

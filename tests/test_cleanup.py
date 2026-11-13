@@ -18,6 +18,7 @@ PARSER_CASES = [
 	pytest.param("Daft Punk", "Get Lucky (feat. Pharrell Williams)", ["Daft Punk", "Pharrell Williams"], "Get Lucky (feat. Pharrell Williams)", id="title-feat-kept"),
 	pytest.param("Calvin Harris", "One Kiss (with Dua Lipa)", ["Calvin Harris", "Dua Lipa"], "One Kiss (with Dua Lipa)", id="title-with"),
 	pytest.param("A", "Dancing with Myself", ["A"], "Dancing with Myself", id="title-with-bare-kept"),
+	pytest.param("A", "Stay (With Me)", ["A"], "Stay (With Me)", id="title-with-capital-kept"),
 	pytest.param("A", "Song (2011 Remaster)", ["A"], "Song", id="remaster-bracket"),
 	pytest.param("The Beatles", "Let It Be - Remastered 2009", ["The Beatles"], "Let It Be", id="remaster-dash"),
 	pytest.param("A", "Song - 2011 Remaster", ["A"], "Song", id="remaster-dash-year-first"),
