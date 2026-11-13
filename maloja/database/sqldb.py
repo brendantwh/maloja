@@ -157,6 +157,15 @@ DBTABLES = {
 		],
 		'extraargs':(),'extrakwargs':{}
 	},
+	# rule files that were imported but couldn't be moved out of the rules folder (e.g. it's read-only),
+	# so they aren't imported again: rules deleted or sets switched off in the web interface stay that way
+	'stuck_rule_files':{
+		'columns':[
+			("file",                sql.String,                                   {'primary_key':True}), # name in the rules folder
+			("digest",              sql.String,                                   {}) # of the content (of the link target for sets)
+		],
+		'extraargs':(),'extrakwargs':{}
+	},
 	# single rules of a predefined set that are switched off
 	'ruleset_overrides':{
 		'columns':[
