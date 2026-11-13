@@ -123,3 +123,17 @@ def test_apply_refuses_outdated_preview_after_setting_change(seeded, settings):
 	settings(TITLE_STRIP_FEAT=True)
 	with pytest.raises(reparse.PreviewOutdated):
 		reparse.start_apply()
+
+
+def test_moved_track_keeps_its_album(db):
+	sqldb.add_scrobble({"time": 1, "track": {"artists": ["A"], "title": "RED"}, "origin": "client:test",
+		"rawscrobble": {"track_artists": ["A"], "track_title": "RED", "scrobble_time": 1}})
+	old = track_id(["A"], "RED")
+	album = sqldb.get_album_id({"albumtitle": "Set By Hand", "artists": ["A"]})
+	sqldb.add_track_to_album(old, album)
+	rules.add_rule("replacetitle", ["RED", "Crimson"])
+	db.cla.set_rules(rules.load_rules())
+	result = apply_reparse()
+	os.remove(result["snapshot"])
+	assert result["moved"] == 1
+	assert sqldb.get_track(track_id(["A"], "Crimson"))["album"]["albumtitle"] == "Set By Hand"
