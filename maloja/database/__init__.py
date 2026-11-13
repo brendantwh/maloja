@@ -981,7 +981,7 @@ def get_parser_rules(dbconn=None):
 
 def get_predefined_rulesets(dbconn=None):
 	states = rules.get_ruleset_states(dbconn=dbconn)
-	pending = {name for kind, name, _ in rules.pending_files() if kind == 'set'}
+	pending = {name for kind, name, *_ in rules.pending_files(dbconn=dbconn) if kind == 'set'}
 	return [
 		{**ruleset, "active": states.get(ruleset["file"], False) or ruleset["file"] in pending}
 		for ruleset in rules.list_ruleset_files()

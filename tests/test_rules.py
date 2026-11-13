@@ -62,6 +62,29 @@ def test_failed_import_leaves_files_in_place(folder):
 		assert conn.execute(sql.select(sqldb.DB["rules"])).all() == []
 
 
+def test_unmovable_rule_file_is_not_imported_again(folder, monkeypatch):
+	def read_only(*args):
+		raise OSError("read-only file system")
+	monkeypatch.setattr(os, "rename", read_only)
+	monkeypatch.setattr(os, "remove", read_only)
+	folder("mine.tsv", "replacetitle\tRED\tRed\n")
+	os.symlink(data_dir["rules"]("predefined", "test_set.tsv"), data_dir["rules"]("test_set.tsv"))
+	rules.reload_rules()
+	(rule,) = rules.list_rules()
+	# what the web interface does: delete the rule, switch the set off, and reload after each change
+	rules.delete_rule(rule["id"])
+	rules.reload_rules()
+	rules.set_ruleset_enabled("test_set", False)
+	rules.reload_rules()
+	assert rules.list_rules() == []
+	assert rules.get_ruleset_states() == {"test_set": False}
+	assert not any(s["active"] for s in rules.list_rulesets())
+	# a changed file is new rules, so it's imported
+	folder("mine.tsv", "replacetitle\tBLUE\tBlue\n")
+	rules.reload_rules()
+	assert [r["fields"] for r in rules.list_rules()] == [["BLUE", "Blue"]]
+
+
 def test_symlink_switches_set_on(folder):
 	os.symlink(data_dir["rules"]("predefined", "test_set.tsv"), data_dir["rules"]("test_set.tsv"))
 	loaded = rules.load_rules(import_files=True)
