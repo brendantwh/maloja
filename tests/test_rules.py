@@ -43,6 +43,13 @@ def test_rule_file_is_imported_once(folder):
 	assert fields(rules.load_rules(import_files=True)) == [("replacetitle", ("RED", "Red"))]
 
 
+def test_bad_line_in_rule_file_is_skipped(folder):
+	# a column of only spaces used to be accepted, now it fails validation
+	folder("mine.tsv", "replacetitle\tFoo\t \tBar\nreplacetitle\tRED\tRed\n")
+	assert fields(rules.load_rules(import_files=True)) == [("replacetitle", ("RED", "Red"))]
+	assert sorted(os.listdir(data_dir["rules"]())) == ["mine.tsv.imported", "predefined"]
+
+
 def test_symlink_switches_set_on(folder):
 	os.symlink(data_dir["rules"]("predefined", "test_set.tsv"), data_dir["rules"]("test_set.tsv"))
 	loaded = rules.load_rules(import_files=True)
