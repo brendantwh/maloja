@@ -8,7 +8,7 @@ import math
 from datetime import datetime
 from threading import Lock
 
-from ..pkg_global.conf import data_dir
+from ..pkg_global.conf import data_dir, malojaconfig
 from ..malojatime import register_scrobbletime
 from .pragmas import apply_sqlite_pragmas
 from .dbcache import cached_wrapper, cached_wrapper_individual, invalidate_caches, invalidate_entity_cache
@@ -115,6 +115,21 @@ DBTABLES = {
 			sql.UniqueConstraint('source_artist', 'target_artist'),
 			sql.Index('ix_associated_artists_target_artist', 'target_artist'),
 		),'extrakwargs':{}
+	},
+	# old spellings learned from renames and merges, so future scrobbles find the entity
+	'aliases':{
+		'columns':[
+			("id",                  sql.Integer,                                  {'primary_key':True}),
+			("entity_type",         sql.String,                                   {}), # artist, track or album
+			("name_normalized",     sql.String,                                   {}),
+			("artists_normalized",  sql.String,                                   {}), # tracks and albums: json list, artists: ''
+			("target_id",           sql.Integer,                                  {}),
+			("created_at",          sql.Integer,                                  {}),
+			("source",              sql.String,                                   {})  # rename or merge
+		],
+		'extraargs':(
+			sql.UniqueConstraint('entity_type', 'name_normalized', 'artists_normalized'),
+		),'extrakwargs':{'sqlite_autoincrement':True}
 	}
 }
 
@@ -510,18 +525,127 @@ def remove_album(track_ids: list[int], dbconn=None) -> bool:
 	return True
 
 
+### aliases
+
+def alias_artists_key(artists):
+	return json.dumps(sorted({normalize_name(a) for a in artists}), ensure_ascii=False)
+
+
+@connection_provider
+def add_alias(entity_type: str, name: str, target_id: int, artists=None, source=None, dbconn=None) -> bool:
+	if not malojaconfig['LEARN_ALIASES']:
+		return False
+	# the same old name recorded again points at the newest target
+	values = {
+		'entity_type': entity_type,
+		'name_normalized': normalize_name(name),
+		'artists_normalized': alias_artists_key(artists) if artists is not None else '',
+		'target_id': target_id,
+		'created_at': now(),
+		'source': source
+	}
+	op = sqliteinsert(DB['aliases']).values(**values).on_conflict_do_update(
+		index_elements=['entity_type', 'name_normalized', 'artists_normalized'],
+		set_={k: values[k] for k in ('target_id', 'created_at', 'source')}
+	)
+	dbconn.execute(op)
+	if entity_type == 'artist':
+		remember_known_artist(name, kind='aliases')
+	return True
+
+
+def remove_alias(entity_type: str, name: str, artists=None, dbconn=None):
+	# an entity now really has this name, so it no longer needs to be an alias
+	conditions = [
+		DB['aliases'].c.entity_type == entity_type,
+		DB['aliases'].c.name_normalized == normalize_name(name)
+	]
+	if artists is not None:
+		conditions.append(DB['aliases'].c.artists_normalized == alias_artists_key(artists))
+	dbconn.execute(DB['aliases'].delete().where(*conditions))
+	forget_known_artists()
+
+
+def repoint_aliases(entity_type: str, target_id: int, source_ids: list[int], dbconn=None):
+	# aliases of merged entities move along, also when the merge happens automatically
+	dbconn.execute(DB['aliases'].update().where(
+		DB['aliases'].c.entity_type == entity_type,
+		DB['aliases'].c.target_id.in_(source_ids)
+	).values(target_id=target_id))
+
+
+def find_alias(entity_type: str, nname: str, artist_ids=None, dbconn=None) -> int | None:
+	# artist_ids None means artists don't matter (artists themselves, or albums looked up by title only)
+	if not malojaconfig['LEARN_ALIASES']:
+		return None
+	op = DB['aliases'].select().where(
+		DB['aliases'].c.entity_type == entity_type,
+		DB['aliases'].c.name_normalized == nname
+	).order_by(DB['aliases'].c.id)
+	for row in dbconn.execute(op).all():
+		if artist_ids is None:
+			return row.target_id
+		# stored as names, so artists renamed or merged since then still match through their own aliases
+		alias_artist_ids = [get_artist_id(a, create_new=False, dbconn=dbconn) for a in json.loads(row.artists_normalized or '[]')]
+		if None not in alias_artist_ids and set(alias_artist_ids) == set(artist_ids):
+			return row.target_id
+	return None
+
+
+### known artist names, so the parser can keep names like "Simon & Garfunkel" whole
+# a plain in-memory set instead of the db cache: the parser asks for every scrobble, also in AUX_MODE
+# (imports), so it is kept up to date deliberately and only reloaded after deletions
+
+known_artist_names = None
+
+def is_known_artist(name: str) -> bool:
+	global known_artist_names
+	known = known_artist_names
+	if known is None:
+		with engine.connect() as conn:
+			known = {
+				'artists': {row.name_normalized for row in conn.execute(sql.select(DB['artists'].c.name_normalized))},
+				'aliases': {row.name_normalized for row in conn.execute(sql.select(DB['aliases'].c.name_normalized).where(DB['aliases'].c.entity_type == 'artist'))}
+			}
+		known_artist_names = known
+	nname = normalize_name(name)
+	return nname in known['artists'] or (malojaconfig['LEARN_ALIASES'] and nname in known['aliases'])
+
+
+def remember_known_artist(name: str, kind='artists'):
+	if known_artist_names is not None:
+		known_artist_names[kind].add(normalize_name(name))
+
+
+def forget_known_artists():
+	global known_artist_names
+	known_artist_names = None
+
+
 ### these will 'get' the ID of an entity, creating it if necessary
 
 @cached_wrapper
 @connection_provider
-def get_track_id(trackdict: TrackDict, create_new=True, update_album=False, dbconn=None) -> int | None:
+def get_track_id(trackdict: TrackDict, create_new=True, update_album=False, use_aliases=True, dbconn=None) -> int | None:
 	ntitle = normalize_name(trackdict['title'])
 	artist_ids = [get_artist_id(a, create_new=create_new, dbconn=dbconn) for a in trackdict['artists']]
-	artist_ids = list(set(artist_ids))
+	# dict keeps the order the artists were given in (a set would sort them by id)
+	artist_ids = list(dict.fromkeys(artist_ids))
 
 	op = DB['tracks'].select().where(
 		DB['tracks'].c.title_normalized == ntitle
 	)
+	def found(row):
+		if trackdict.get('album') and create_new:
+			# if we don't supply create_new, it means we just want to get info about a track
+			# which means no need to write album info, even if it was new
+
+			# if we havent set update_album, we only want to assign the album in case the track
+			# has no album yet. this means we also only want to create a potentially new album in that case
+			album_id = get_album_id(trackdict['album'],create_new=(update_album or not row.album_id),dbconn=dbconn)
+			add_track_to_album(row.id,album_id,replace=update_album,dbconn=dbconn)
+		return row.id
+
 	result = dbconn.execute(op).all()
 	for row in result:
 		# check if the artists are the same
@@ -537,16 +661,14 @@ def get_track_id(trackdict: TrackDict, create_new=True, update_album=False, dbco
 		#print("required artists",artist_ids,"this match",match_artist_ids)
 		if set(artist_ids) == set(match_artist_ids):
 			#print("ID for",trackdict['title'],"was",row[0])
-			if trackdict.get('album') and create_new:
-				# if we don't supply create_new, it means we just want to get info about a track
-				# which means no need to write album info, even if it was new
-				
-				# if we havent set update_album, we only want to assign the album in case the track
-				# has no album yet. this means we also only want to create a potentially new album in that case
-				album_id = get_album_id(trackdict['album'],create_new=(update_album or not row.album_id),dbconn=dbconn)
-				add_track_to_album(row.id,album_id,replace=update_album,dbconn=dbconn)
+			return found(row)
 
-			return row.id
+	if use_aliases:
+		alias_target = find_alias('track', ntitle, artist_ids, dbconn=dbconn)
+		if alias_target is not None:
+			row = dbconn.execute(DB['tracks'].select().where(DB['tracks'].c.id == alias_target)).first()
+			if row is not None:
+				return found(row)
 
 	if not create_new:
 		return None
@@ -574,7 +696,7 @@ def get_track_id(trackdict: TrackDict, create_new=True, update_album=False, dbco
 
 @cached_wrapper
 @connection_provider
-def get_artist_id(artistname: str, create_new=True, dbconn=None) -> int | None:
+def get_artist_id(artistname: str, create_new=True, use_aliases=True, dbconn=None) -> int | None:
 	nname = normalize_name(artistname)
 	#print("looking for",nname)
 
@@ -586,6 +708,11 @@ def get_artist_id(artistname: str, create_new=True, dbconn=None) -> int | None:
 		#print("ID for",artistname,"was",row[0])
 		return row.id
 
+	if use_aliases:
+		alias_target = find_alias('artist', nname, dbconn=dbconn)
+		if alias_target is not None:
+			return alias_target
+
 	if not create_new:
 		return None
 
@@ -594,16 +721,18 @@ def get_artist_id(artistname: str, create_new=True, dbconn=None) -> int | None:
 		name_normalized=nname
 	)
 	result = dbconn.execute(op)
+	remember_known_artist(artistname)
 	#print("Created",artistname,result.inserted_primary_key)
 	return result.inserted_primary_key[0]
 
 
 @cached_wrapper
 @connection_provider
-def get_album_id(albumdict: AlbumDict, create_new=True, ignore_albumartists=False, dbconn=None) -> int | None:
+def get_album_id(albumdict: AlbumDict, create_new=True, ignore_albumartists=False, use_aliases=True, dbconn=None) -> int | None:
 	ntitle = normalize_name(albumdict['albumtitle'])
 	artist_ids = [get_artist_id(a, dbconn=dbconn) for a in (albumdict.get('artists') or [])]
-	artist_ids = list(set(artist_ids))
+	# dict keeps the order the artists were given in (a set would sort them by id)
+	artist_ids = list(dict.fromkeys(artist_ids))
 
 	op = DB['albums'].select(
 #		DB['albums'].c.id
@@ -629,6 +758,11 @@ def get_album_id(albumdict: AlbumDict, create_new=True, ignore_albumartists=Fals
 			if set(artist_ids) == set(match_artist_ids):
 				#print("ID for",albumdict['title'],"was",row[0])
 				return row.id
+
+	if use_aliases:
+		alias_target = find_alias('album', ntitle, None if ignore_albumartists else artist_ids, dbconn=dbconn)
+		if alias_target is not None:
+			return alias_target
 
 	if not create_new:
 		return None
@@ -673,7 +807,7 @@ def edit_scrobble(scrobble_id: int, scrobbleupdatedict: dict, dbconn=None) -> bo
 
 # edit function only for primary db information (not linked fields)
 @connection_provider
-def edit_artist(artist_id: int, artistupdatedict: str, dbconn=None) -> bool:
+def edit_artist(artist_id: int, artistupdatedict: str, record_alias=False, dbconn=None) -> bool:
 
 	artist = get_artist(artist_id)
 	changedartist = artistupdatedict # well
@@ -681,7 +815,7 @@ def edit_artist(artist_id: int, artistupdatedict: str, dbconn=None) -> bool:
 	dbentry = artist_dict_to_db(artistupdatedict, dbconn=dbconn)
 	dbentry = {k: v for k, v in dbentry.items() if v}
 
-	existing_artist_id = get_artist_id(changedartist, create_new=False, dbconn=dbconn)
+	existing_artist_id = get_artist_id(changedartist, create_new=False, use_aliases=False, dbconn=dbconn)
 	if existing_artist_id not in (None, artist_id):
 		raise exc.ArtistExists(changedartist)
 
@@ -691,12 +825,17 @@ def edit_artist(artist_id: int, artistupdatedict: str, dbconn=None) -> bool:
 		**dbentry
 	)
 	result = dbconn.execute(op)
+
+	remove_alias('artist', changedartist, dbconn=dbconn)
+	remember_known_artist(changedartist)
+	if record_alias and normalize_name(artist) != normalize_name(changedartist):
+		add_alias('artist', artist, artist_id, source='rename', dbconn=dbconn)
 	return True
 
 
 # edit function only for primary db information (not linked fields)
 @connection_provider
-def edit_track(track_id: int, trackupdatedict: dict, dbconn=None) -> bool:
+def edit_track(track_id: int, trackupdatedict: dict, record_alias=False, dbconn=None) -> bool:
 
 	track = get_track(track_id, dbconn=dbconn)
 	changedtrack: TrackDict = {**track, **trackupdatedict}
@@ -704,7 +843,7 @@ def edit_track(track_id: int, trackupdatedict: dict, dbconn=None) -> bool:
 	dbentry = track_dict_to_db(trackupdatedict, dbconn=dbconn)
 	dbentry = {k: v for k, v in dbentry.items() if v}
 
-	existing_track_id = get_track_id(changedtrack, create_new=False, dbconn=dbconn)
+	existing_track_id = get_track_id(changedtrack, create_new=False, use_aliases=False, dbconn=dbconn)
 	if existing_track_id not in (None, track_id):
 		raise exc.TrackExists(changedtrack)
 
@@ -714,12 +853,16 @@ def edit_track(track_id: int, trackupdatedict: dict, dbconn=None) -> bool:
 		**dbentry
 	)
 	result = dbconn.execute(op)
+
+	remove_alias('track', changedtrack['title'], artists=track['artists'], dbconn=dbconn)
+	if record_alias and normalize_name(track['title']) != normalize_name(changedtrack['title']):
+		add_alias('track', track['title'], track_id, artists=track['artists'], source='rename', dbconn=dbconn)
 	return True
 
 
 # edit function only for primary db information (not linked fields)
 @connection_provider
-def edit_album(album_id: int, albumupdatedict: dict, dbconn=None) -> bool:
+def edit_album(album_id: int, albumupdatedict: dict, record_alias=False, dbconn=None) -> bool:
 
 	album = get_album(album_id, dbconn=dbconn)
 	changedalbum: AlbumDict = {**album, **albumupdatedict}
@@ -727,7 +870,7 @@ def edit_album(album_id: int, albumupdatedict: dict, dbconn=None) -> bool:
 	dbentry = album_dict_to_db(albumupdatedict, dbconn=dbconn)
 	dbentry = {k: v for k, v in dbentry.items() if v}
 
-	existing_album_id = get_album_id(changedalbum, create_new=False, dbconn=dbconn)
+	existing_album_id = get_album_id(changedalbum, create_new=False, use_aliases=False, dbconn=dbconn)
 	if existing_album_id not in (None, album_id):
 		raise exc.AlbumExists(changedalbum)
 
@@ -737,6 +880,10 @@ def edit_album(album_id: int, albumupdatedict: dict, dbconn=None) -> bool:
 		**dbentry
 	)
 	result = dbconn.execute(op)
+
+	remove_alias('album', changedalbum['albumtitle'], artists=album['artists'] or [], dbconn=dbconn)
+	if record_alias and normalize_name(album['albumtitle']) != normalize_name(changedalbum['albumtitle']):
+		add_alias('album', album['albumtitle'], album_id, artists=album['artists'] or [], source='rename', dbconn=dbconn)
 	return True
 
 
@@ -819,7 +966,12 @@ def remove_artists_from_albums(album_ids: list[int], artist_ids: list[int], dbco
 ### Merge
 
 @connection_provider
-def merge_tracks(target_id: int, source_ids: list[int], dbconn=None) -> bool:
+def merge_tracks(target_id: int, source_ids: list[int], record_alias=False, dbconn=None) -> bool:
+
+	repoint_aliases('track', target_id, source_ids, dbconn=dbconn)
+	if record_alias:
+		for source in [get_track(source_id, dbconn=dbconn) for source_id in source_ids]:
+			add_alias('track', source['title'], target_id, artists=source['artists'], source='merge', dbconn=dbconn)
 
 	op = DB['scrobbles'].update().where(
 		DB['scrobbles'].c.track_id.in_(source_ids)
@@ -832,53 +984,31 @@ def merge_tracks(target_id: int, source_ids: list[int], dbconn=None) -> bool:
 
 
 @connection_provider
-def merge_artists(target_id: int, source_ids: list[int], dbconn=None) -> bool:
+def merge_artists(target_id: int, source_ids: list[int], record_alias=False, dbconn=None) -> bool:
+
+	repoint_aliases('artist', target_id, source_ids, dbconn=dbconn)
+	if record_alias:
+		for source in [get_artist(source_id, dbconn=dbconn) for source_id in source_ids]:
+			add_alias('artist', source, target_id, source='merge', dbconn=dbconn)
 
 	# some tracks could already have multiple of the to be merged artists
+	# on each track and album, the first of their entries takes the target artist and the
+	# others are deleted, so the target keeps the credited position instead of moving to the end
+	for table, entity in (('trackartists', 'track_id'), ('albumartists', 'album_id')):
+		op = DB[table].select().where(
+			DB[table].c.artist_id.in_(source_ids + [target_id])
+		).order_by(DB[table].c.id)
+		keep, remove = {}, []
+		for row in dbconn.execute(op):
+			if getattr(row, entity) in keep:
+				remove.append(row.id)
+			else:
+				keep[getattr(row, entity)] = row.id
 
-	# find literally all tracksartist entries that have any of the artists involved
-	op = DB['trackartists'].select().where(
-		DB['trackartists'].c.artist_id.in_(source_ids + [target_id])
-	)
-	result = dbconn.execute(op)
-
-	track_ids = set(row.track_id for row in result)
-
-	# now just delete them all lmao
-	op = DB['trackartists'].delete().where(
-		#DB['trackartists'].c.track_id.in_(track_ids),
-		DB['trackartists'].c.artist_id.in_(source_ids + [target_id]),
-	)
-
-	result = dbconn.execute(op)
-
-	# now add back the real new artist
-	op = DB['trackartists'].insert().values([
-		{'track_id':track_id,'artist_id':target_id}
-		for track_id in track_ids
-	])
-
-	result = dbconn.execute(op)
-
-	# same for albums
-	op = DB['albumartists'].select().where(
-		DB['albumartists'].c.artist_id.in_(source_ids + [target_id])
-	)
-	result = dbconn.execute(op)
-
-	album_ids = set(row.album_id for row in result)
-
-	op = DB['albumartists'].delete().where(
-		DB['albumartists'].c.artist_id.in_(source_ids + [target_id]),
-	)
-	result = dbconn.execute(op)
-
-	op = DB['albumartists'].insert().values([
-		{'album_id':album_id,'artist_id':target_id}
-		for album_id in album_ids
-	])
-
-	result = dbconn.execute(op)
+		if remove:
+			dbconn.execute(DB[table].delete().where(DB[table].c.id.in_(remove)))
+		if keep:
+			dbconn.execute(DB[table].update().where(DB[table].c.id.in_(keep.values())).values(artist_id=target_id))
 
 #	tracks_artists = {}
 #	for row in result:
@@ -903,7 +1033,12 @@ def merge_artists(target_id: int, source_ids: list[int], dbconn=None) -> bool:
 
 
 @connection_provider
-def merge_albums(target_id: int, source_ids: list[int], dbconn=None) -> bool:
+def merge_albums(target_id: int, source_ids: list[int], record_alias=False, dbconn=None) -> bool:
+
+	repoint_aliases('album', target_id, source_ids, dbconn=dbconn)
+	if record_alias:
+		for source in [get_album(source_id, dbconn=dbconn) for source_id in source_ids]:
+			add_alias('album', source['albumtitle'], target_id, artists=source['artists'] or [], source='merge', dbconn=dbconn)
 
 	op = DB['tracks'].update().where(
 		DB['tracks'].c.album_id.in_(source_ids)
@@ -1803,7 +1938,11 @@ def clean_db(dbconn=None):
 			"from albumartists where artist_id not in (select id from artists)",
 			# trackartist entries that mare missing a reference
 			"from trackartists where track_id not in (select id from tracks)",
-			"from trackartists where artist_id not in (select id from artists)"
+			"from trackartists where artist_id not in (select id from artists)",
+			# aliases live as long as what they point to
+			"from aliases where entity_type = 'artist' and target_id not in (select id from artists)",
+			"from aliases where entity_type = 'track' and target_id not in (select id from tracks)",
+			"from aliases where entity_type = 'album' and target_id not in (select id from albums)"
 		]
 
 		for d in to_delete:
@@ -1811,6 +1950,7 @@ def clean_db(dbconn=None):
 			for row in selection.all():
 				log(f"Deleting {row}")
 			deletion = dbconn.execute(sql.text(f"delete {d}"))
+		forget_known_artists()
 
 		log("Database Cleanup complete!")
 

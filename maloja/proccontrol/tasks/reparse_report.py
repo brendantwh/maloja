@@ -27,7 +27,8 @@ def reparse_report(examples=10, json=None):
 	print(f"  rejected     {_num(s['discarded']['count'])} (current rules would discard them; a reparse leaves them alone)")
 	print(f"  errors       {_num(s['errors']['count'])}")
 	print()
-	print(f"Tracks:   {_num(t['merges']['count'])} merges, {_num(t['splits']['count'])} splits, {_num(t['renames']['count'])} renames, {_num(t['new'])} new")
+	print(f"Tracks:   {_num(t['merges']['count'])} merges, {_num(t['splits']['count'])} splits, {_num(t['renames']['count'])} renames, {_num(t['new'])} new, "
+		f"{_num(t['reordered']['count'])} credited in another artist order")
 	print(f"Artists:  {_num(a['changes']['count'])} changes ({', '.join(f'{k} {n}' for k, n in a['changes']['by_kind'].items()) or 'none'}), "
 		f"{_num(a['vanishing']['count'])} would lose all scrobbles, {_num(a['new']['count'])} new")
 
@@ -50,6 +51,10 @@ def reparse_report(examples=10, json=None):
 	section("Track renames", (
 		f"{_track(r['track'])} -> {_track(r['to'])}  ({', '.join(r['changed'])}) [{r['scrobbles']:,}]"
 		for r in t['renames']['examples']
+	))
+	section("Artist order differs from the credits", (
+		f"{_track(r['track'])} -> {', '.join(r['credited'])}  [{r['scrobbles']:,}]"
+		for r in t['reordered']['examples']
 	))
 	section("Artist changes", (
 		f"{c['kind']:<8} {', '.join(c['from']) or '-'} -> {', '.join(c['to']) or '-'}  [{c['scrobbles']:,}]"

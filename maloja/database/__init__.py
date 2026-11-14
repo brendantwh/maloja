@@ -73,7 +73,7 @@ def waitfordb(func):
 
 ISSUES = {}
 
-cla = CleanerAgent()
+cla = CleanerAgent(known_artist=sqldb.is_known_artist)
 
 
 
@@ -231,7 +231,7 @@ def remove_scrobble(timestamp):
 def edit_artist(id,artistinfo):
 	artist = sqldb.get_artist(id)
 	log(f"Renaming {artist} to {artistinfo}")
-	result = sqldb.edit_artist(id,artistinfo)
+	result = sqldb.edit_artist(id,artistinfo,record_alias=True)
 	dbcache.invalidate_entity_cache()
 	dbcache.invalidate_caches()
 
@@ -241,7 +241,7 @@ def edit_artist(id,artistinfo):
 def edit_track(id,trackinfo):
 	track = sqldb.get_track(id)
 	log(f"Renaming {track['title']} to {trackinfo['title']}")
-	result = sqldb.edit_track(id,trackinfo)
+	result = sqldb.edit_track(id,trackinfo,record_alias=True)
 	dbcache.invalidate_entity_cache()
 	dbcache.invalidate_caches()
 
@@ -251,7 +251,7 @@ def edit_track(id,trackinfo):
 def edit_album(id,albuminfo):
 	album = sqldb.get_album(id)
 	log(f"Renaming {album['albumtitle']} to {albuminfo['albumtitle']}")
-	result = sqldb.edit_album(id,albuminfo)
+	result = sqldb.edit_album(id,albuminfo,record_alias=True)
 	dbcache.invalidate_entity_cache()
 	dbcache.invalidate_caches()
 
@@ -262,7 +262,7 @@ def merge_artists(target_id,source_ids):
 	sources = [sqldb.get_artist(id) for id in source_ids]
 	target = sqldb.get_artist(target_id)
 	log(f"Merging {sources} into {target}")
-	sqldb.merge_artists(target_id,source_ids)
+	sqldb.merge_artists(target_id,source_ids,record_alias=True)
 	result = {'sources':sources,'target':target}
 	dbcache.invalidate_entity_cache()
 	dbcache.invalidate_caches()
@@ -274,7 +274,7 @@ def merge_tracks(target_id,source_ids):
 	sources = [sqldb.get_track(id) for id in source_ids]
 	target = sqldb.get_track(target_id)
 	log(f"Merging {sources} into {target}")
-	sqldb.merge_tracks(target_id,source_ids)
+	sqldb.merge_tracks(target_id,source_ids,record_alias=True)
 	result = {'sources':sources,'target':target}
 	dbcache.invalidate_entity_cache()
 	dbcache.invalidate_caches()
@@ -286,7 +286,7 @@ def merge_albums(target_id,source_ids):
 	sources = [sqldb.get_album(id) for id in source_ids]
 	target = sqldb.get_album(target_id)
 	log(f"Merging {sources} into {target}")
-	sqldb.merge_albums(target_id,source_ids)
+	sqldb.merge_albums(target_id,source_ids,record_alias=True)
 	result = {'sources':sources,'target':target}
 	dbcache.invalidate_entity_cache()
 	dbcache.invalidate_caches()

@@ -30,6 +30,35 @@ def settings(monkeypatch):
 	return set
 
 
+def _empty_db(monkeypatch):
+	# all tests share one data directory, so each database test starts from an empty one
+	from maloja import database
+	from maloja.database import dbcache, sqldb
+	from maloja.pkg_global import conf
+
+	# in AUX_MODE cache invalidation is a no-op, so cached ids would leak between tests
+	monkeypatch.setattr(conf, "AUX_MODE", False)
+	monkeypatch.setitem(database.dbstatus, "healthy", True)
+	with sqldb.engine.begin() as conn:
+		for table in reversed(sqldb.meta.sorted_tables):
+			conn.execute(table.delete())
+	dbcache.invalidate_entity_cache()
+	dbcache.invalidate_caches()
+	sqldb.forget_known_artists()
+	return database
+
+
+@pytest.fixture
+def db(monkeypatch):
+	return _empty_db(monkeypatch)
+
+
+@pytest.fixture(scope="module")
+def module_db():
+	with pytest.MonkeyPatch.context() as mp:
+		yield _empty_db(mp), mp
+
+
 @pytest.fixture
 def agent_with_rules():
 	rulesfile = data_dir["rules"]("tests.tsv")
