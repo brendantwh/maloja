@@ -18,6 +18,7 @@ PARSER_CASES = [
 	pytest.param("Daft Punk", "Get Lucky (feat. Pharrell Williams)", ["Daft Punk", "Pharrell Williams"], "Get Lucky (feat. Pharrell Williams)", id="title-feat-kept"),
 	pytest.param("Calvin Harris", "One Kiss (with Dua Lipa)", ["Calvin Harris", "Dua Lipa"], "One Kiss (with Dua Lipa)", id="title-with"),
 	pytest.param("A", "Dancing with Myself", ["A"], "Dancing with Myself", id="title-with-bare-kept"),
+	pytest.param("A", "Stay (With Me)", ["A"], "Stay (With Me)", id="title-with-capital-kept"),
 	pytest.param("A", "Song (2011 Remaster)", ["A"], "Song", id="remaster-bracket"),
 	pytest.param("The Beatles", "Let It Be - Remastered 2009", ["The Beatles"], "Let It Be", id="remaster-dash"),
 	pytest.param("A", "Song - 2011 Remaster", ["A"], "Song", id="remaster-dash-year-first"),
@@ -156,6 +157,14 @@ def test_parse_rules_tsv():
 	rules, errors = cleanup.parse_rules_tsv("replacetitle\tRED\tRed\tartist=HyunA\nreplaceartist\tA\tB\tartist=C\n")
 	assert rules == [cleanup.Rule("replacetitle", ("RED", "Red"), "HyunA")]
 	assert errors == ["line 2: replaceartist can't be limited to an artist"]
+
+
+def test_parse_rules_tsv_keeps_quotes():
+	# a quote is text, and an unmatched one doesn't swallow the lines after it
+	text = 'replacetitle\t"Heroes"\tHeroes\nreplaceartist\t"Weird Al" Yankovic\tWeird Al Yankovic\nreplacetitle\t"Oops\tOops\nreplacetitle\tRED\tRed\n'
+	rules, errors = cleanup.parse_rules_tsv(text)
+	assert [r.fields for r in rules] == [('"Heroes"', "Heroes"), ('"Weird Al" Yankovic', "Weird Al Yankovic"), ('"Oops', "Oops"), ("RED", "Red")]
+	assert errors == []
 
 
 def test_explain_lists_fired_rules(agent_with_rules):

@@ -122,7 +122,25 @@ def find_duplicates(dbconn=None):
 	describe = lambda t: {'title': tracks[t].title, 'artists': [artists[a] for a in trackartists[t]], 'length': tracks[t].length}
 	track_suggestions = _suggestions('track', groups, describe, dbconn)
 
-	return {'artists': artist_suggestions, 'tracks': track_suggestions}
+	found = {'artists': artist_suggestions, 'tracks': track_suggestions}
+	global _counts
+	_counts = {kind: len(suggestions) for kind, suggestions in found.items()}
+	return found
+
+
+# the Library tabs show how many there are on every page, so the counts are kept
+# until the database changes (dbcache clears them) instead of searching every time
+_counts = None
+
+def counts():
+	found = _counts
+	if found is None:
+		found = {kind: len(suggestions) for kind, suggestions in find_duplicates().items()}
+	return found
+
+def clear_counts():
+	global _counts
+	_counts = None
 
 
 @sqldb.connection_provider
@@ -133,3 +151,4 @@ def dismiss_duplicate(entity_type, ids, dbconn=None):
 	dbconn.execute(DB['dismissed_duplicates'].insert().values(
 		entity_type=entity_type, member_ids=json.dumps(ids), created_at=int(time.time())
 	).prefix_with('OR IGNORE'))
+	clear_counts()

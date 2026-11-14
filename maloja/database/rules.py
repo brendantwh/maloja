@@ -3,14 +3,17 @@
 # - predefined sets stay in their shipped files and are only switched on (rulesets table),
 #   single rules of a set can be switched off (ruleset_overrides table)
 # - .tsv files dropped into the rules folder are imported once and renamed to .tsv.imported,
-#   symlinks into the predefined folder (the old way to activate a set) switch that set on
+#   symlinks into the predefined folder (the old way to activate a set) switch that set on;
+#   a file that can't be moved is remembered (stuck_rule_files table) and not imported again until it changes
 
+import hashlib
 import json
 import os
 import time
 from threading import RLock
 
 import sqlalchemy as sql
+from sqlalchemy.dialects.sqlite import insert as sqliteinsert
 from doreah.logging import log
 
 from ..cleanup import RULE_COLUMNS, SCOPABLE, SCOPE_PREFIX, Rule, parse_rules_tsv
@@ -108,14 +111,24 @@ def list_ruleset_files():
 
 # files waiting in the rules folder
 
-def pending_files():
-	"""Rule files in the rules folder that haven't been imported yet, as (kind, name, path)."""
+def _digest(kind, path):
+	# a changed file is imported again, a symlink only stands for its set
+	if kind == 'set':
+		return 'set:' + os.path.realpath(path)
+	with open(path, 'rb') as f:
+		return hashlib.sha256(f.read()).hexdigest()
+
+
+@sqldb.connection_provider
+def pending_files(dbconn=None):
+	"""Rule files in the rules folder that haven't been imported yet, as (kind, name, path, digest)."""
 	folder = data_dir['rules']()
 	try:
 		files = sorted(os.listdir(folder))
 	except FileNotFoundError:
 		return []
 	predefined = os.path.realpath(predefined_folder())
+	stuck = {row.file: row.digest for row in dbconn.execute(sql.select(DB['stuck_rule_files']))}
 	pending = []
 	for f in files:
 		path = os.path.join(folder, f)
@@ -123,9 +136,12 @@ def pending_files():
 			continue
 		real = os.path.realpath(path)
 		if os.path.islink(path) and os.path.dirname(real) == predefined:
-			pending.append(('set', os.path.basename(real)[:-len(".tsv")], path))
+			kind, name = 'set', os.path.basename(real)[:-len(".tsv")]
 		else:
-			pending.append(('file', f, path))
+			kind, name = 'file', f
+		digest = _digest(kind, path)
+		if stuck.get(f) != digest:
+			pending.append((kind, name, path, digest))
 	return pending
 
 
@@ -138,43 +154,69 @@ def _read_file(path, name):
 
 
 @sqldb.connection_provider
-def import_rule_files(dbconn=None):
-	"""Import waiting rule files into the database and move them out of the way."""
-	imported = 0
-	for kind, name, path in pending_files():
+def _import_pending(dbconn=None):
+	"""Write waiting rule files into the database. Returns the file moves to do once that's committed."""
+	moves = []
+	for kind, name, path, digest in pending_files(dbconn=dbconn):
 		if kind == 'set':
 			set_ruleset_enabled(name, True, dbconn=dbconn)
 			log(f"Predefined rule set {name} is now switched on in the database")
-			done = lambda: os.remove(path)
+			moves.append((path, None, digest))
 		else:
 			for rule in _read_file(path, name):
-				imported += bool(add_rule(rule.type, rule.fields, rule.scope, origin=f"file:{name}", dbconn=dbconn))
+				# a bad line is skipped, it mustn't stop the other rules (or the server start)
+				try:
+					add_rule(rule.type, rule.fields, rule.scope, origin=f"file:{name}", dbconn=dbconn)
+				except RuleError as e:
+					log(f"Rule file {name}, skipped {rule.type} rule: {e}", color='red')
 			log(f"Imported rule file {name}")
 			target = path + ".imported"
 			if os.path.exists(target):
 				target = f"{path}.{int(time.time())}.imported"
-			done = lambda: os.rename(path, target)
+			moves.append((path, target, digest))
+	return moves
+
+
+def import_rule_files():
+	"""Import waiting rule files into the database and move them out of the way.
+	The files are only moved once the import is committed, so a failed import leaves them to be read again."""
+	stuck = []
+	for path, target, digest in _import_pending():
 		try:
-			done()
+			if target is None:
+				os.remove(path)
+			else:
+				os.rename(path, target)
 		except OSError as e:
-			# e.g. a read-only config folder: the rules are in the database anyway, and importing
-			# them again is a no-op, but a rule deleted in the web interface comes back on restart
-			log(f"Could not move {path} out of the rules folder ({e}), it will be read again on the next start", color='red')
-	return imported
+			# e.g. a read-only config folder: the rules are in the database anyway, the file is
+			# remembered so it isn't imported again (that would bring back rules you deleted)
+			log(f"Could not move {path} out of the rules folder ({e}), it won't be imported again unless it changes", color='red')
+			stuck.append({'file': os.path.basename(path), 'digest': digest})
+	if stuck:
+		_remember_stuck(stuck)
+
+
+@sqldb.connection_provider
+def _remember_stuck(files, dbconn=None):
+	op = sqliteinsert(DB['stuck_rule_files']).values(files)
+	dbconn.execute(op.on_conflict_do_update(index_elements=['file'], set_={'digest': op.excluded.digest}))
 
 
 # loading
 
-@sqldb.connection_provider
 def load_rules(import_files=False, dbconn=None):
 	"""All active rules, in the order they apply (later ones win: your rules over predefined sets).
 	Without import_files, waiting rule files are only read, nothing is written or moved."""
 	if import_files:
-		import_rule_files(dbconn=dbconn)
-	pending = [] if import_files else pending_files()
+		# its own transaction, committed before the files are moved
+		import_rule_files()
+	return _load_rules(pending=[] if import_files else pending_files(), dbconn=dbconn)
 
+
+@sqldb.connection_provider
+def _load_rules(pending, dbconn=None):
 	enabled_sets = {row.name for row in dbconn.execute(sql.select(DB['rulesets']).where(DB['rulesets'].c.enabled))}
-	enabled_sets |= {name for kind, name, _ in pending if kind == 'set'}
+	enabled_sets |= {name for kind, name, *_ in pending if kind == 'set'}
 	overrides = {(row.ruleset, row.rule_key) for row in dbconn.execute(sql.select(DB['ruleset_overrides']))}
 
 	rules = []
@@ -182,7 +224,7 @@ def load_rules(import_files=False, dbconn=None):
 		rules += [r for r in read_ruleset(name) if (name, rule_key(r)) not in overrides]
 	rows = dbconn.execute(sql.select(DB['rules']).where(DB['rules'].c.enabled).order_by(DB['rules'].c.id))
 	rules += [_row_to_rule(row) for row in rows]
-	for kind, name, path in pending:
+	for kind, name, path, _ in pending:
 		if kind == 'file':
 			rules += _read_file(path, name)
 	return rules
@@ -307,7 +349,7 @@ def copy_ruleset_rule(name, key, dbconn=None):
 def list_rulesets(dbconn=None):
 	"""The predefined sets, whether they're on, and their rules with the ones you switched off."""
 	states = get_ruleset_states(dbconn=dbconn)
-	pending = {name for kind, name, _ in pending_files() if kind == 'set'}
+	pending = {name for kind, name, *_ in pending_files(dbconn=dbconn) if kind == 'set'}
 	overrides = {(row.ruleset, row.rule_key) for row in dbconn.execute(sql.select(DB['ruleset_overrides']))}
 	return [
 		{

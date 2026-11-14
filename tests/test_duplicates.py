@@ -1,6 +1,6 @@
 import pytest
 
-from maloja.database import duplicates, sqldb
+from maloja.database import dbcache, duplicates, sqldb
 
 
 @pytest.mark.parametrize("a,b,same", [
@@ -71,3 +71,15 @@ def test_dismissed_until_a_new_member_appears(db):
 	add(3, ["Ke-sha"], "Blow")
 	(artist,) = db.get_duplicates()["artists"]
 	assert len(artist["members"]) == 3
+
+
+def test_counts_are_kept_until_the_database_changes(db):
+	add(1, ["Ke$ha"], "Tik Tok")
+	add(2, ["Kesha"], "Praying")
+	assert db.get_duplicate_counts() == {"artists": 1, "tracks": 0}
+	# writing to sqldb directly doesn't clear any caches, so these aren't counted yet
+	add(3, ["P!nk"], "So What")
+	add(4, ["Pink"], "Trouble")
+	assert db.get_duplicate_counts()["artists"] == 1
+	dbcache.invalidate_caches()
+	assert db.get_duplicate_counts()["artists"] == 2

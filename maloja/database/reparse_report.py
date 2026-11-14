@@ -249,7 +249,7 @@ def build_report(examples=10, dbconn=None):
 			'new': {'count': len(new_artists), 'examples': _top(new_artists, examples, name=lambda v: v['artist'])},
 		},
 		'notes': [
-			'Albums are not compared.',
+			'Albums are not compared. A track that moves keeps its album, unless the new track already has one.',
 			'Reordered tracks keep their stored artist order, only new tracks are stored in credited order.'
 		],
 	}
