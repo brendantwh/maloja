@@ -12,12 +12,22 @@ os.environ["MALOJA_SKIP_SETUP"] = "yes"
 import pytest
 
 from maloja.cleanup import CleanerAgent
-from maloja.pkg_global.conf import data_dir
+from maloja.pkg_global.conf import data_dir, malojaconfig
 
 
 @pytest.fixture
 def agent():
 	return CleanerAgent()
+
+
+@pytest.fixture
+def settings(monkeypatch):
+	# the environment layer is in memory only, so nothing is written to settings.ini
+	def set(**values):
+		for key, value in values.items():
+			monkeypatch.setitem(malojaconfig.environment, key.lower(), value)
+
+	return set
 
 
 @pytest.fixture

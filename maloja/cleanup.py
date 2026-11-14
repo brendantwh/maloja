@@ -42,7 +42,10 @@ class CleanerAgent:
 	def fullclean(self,artist,title,album):
 		artists = self.parseArtists(self.removespecial(artist))
 		title = self.parseTitle(self.removespecial(title))
-		(_,moreartists) = self.parseTitleForArtists(title)
+		(stripped,moreartists) = self.parseTitleForArtists(title)
+		# off by default: the full title, including "(feat. X)", is kept on purpose
+		if malojaconfig["TITLE_STRIP_FEAT"]:
+			title = stripped
 		artists += moreartists
 		if title.lower() in self.rules_addartists:
 			reqartists, allartists = self.rules_addartists[title.lower()]
@@ -116,9 +119,10 @@ class CleanerAgent:
 
 
 		for d in self.delimiters_feat:
-			if re.match(r"(.*) [\(\[]" + d + " (.*)[\)\]]",a,flags=re.IGNORECASE) is not None:
-				return self.parseArtists(re.sub(r"(.*) [\(\[]" + d + " (.*)[\)\]]",r"\1",a,flags=re.IGNORECASE)) + \
-						self.parseArtists(re.sub(r"(.*) [\(\[]" + d + " (.*)[\)\]]",r"\2",a,flags=re.IGNORECASE))
+			match = re.match(r"(.*) [\(\[]" + re.escape(d) + r" (.*)[\)\]]",a,flags=re.IGNORECASE)
+			if match is not None:
+				rest = a[match.end():]
+				return self.parseArtists(match.group(1) + rest) + self.parseArtists(match.group(2) + rest)
 
 
 
@@ -150,9 +154,10 @@ class CleanerAgent:
 
 		# we'll leave these matching all bracket types so future changes
 		# won't require readaption
-		t = re.sub(r" [\(\[]as made famous by .*?[\)\]]","",t)
-		t = re.sub(r" [\(\[]originally by .*?[\)\]]","",t)
-		t = re.sub(r" [\(\[].*?Remaster.*?[\)\]]","",t)
+		# [^()\[\]] keeps a match inside one bracket group, so it can't eat a (feat. X) before it
+		t = re.sub(r" [\(\[]as made famous by [^()\[\]]*[\)\]]","",t)
+		t = re.sub(r" [\(\[]originally by [^()\[\]]*[\)\]]","",t)
+		t = self.stripVariants(t)
 
 		for s in malojaconfig["REMOVE_FROM_TITLE"]:
 			if s in t:
@@ -163,25 +168,64 @@ class CleanerAgent:
 		#	t = p(t).strip()
 		return t
 
+	# versions of a song that should count as the same track, each behind its own setting
+	# (live versions and remixes are deliberately not here, they stay separate tracks)
+	title_variants = [
+		("TITLE_MERGE_REMASTERS", r".*\bremaster(ed)?\b.*"),
+		("TITLE_MERGE_EDITS", r"(\d{4} )?(radio|single) (edit|version)"),
+		("TITLE_MERGE_MONO_STEREO", r"(\d{4} )?(mono|stereo)( (version|mix))?"),
+	]
+
+	def stripVariants(self,t):
+		patterns = [p for setting,p in self.title_variants if malojaconfig[setting]]
+		if not patterns:
+			return t
+
+		# a tag can combine several things, e.g. "Live Aid / Remastered": only drop the variant parts
+		def strip_parts(segment):
+			parts = [p for p in segment.split(" / ") if not any(re.fullmatch(pat,p.strip(),flags=re.IGNORECASE) for pat in patterns)]
+			return " / ".join(parts)
+
+		def strip_bracket(match):
+			rest = strip_parts(match.group(1))
+			return f" ({rest})" if rest else ""
+
+		stripped = re.sub(r" \(([^()]*)\)",strip_bracket,t)
+
+		# Spotify style suffix: "Let It Be - Remastered 2009"
+		head,dash,tail = stripped.rpartition(" - ")
+		if head and "(" not in tail:
+			rest = strip_parts(tail)
+			stripped = head + (dash + rest if rest else "")
+
+		return stripped if stripped.strip() else t
+
 	def parseTitleForArtists(self,title):
 		artists = []
+		patterns = []
 		for delimiter in malojaconfig["DELIMITERS_FEAT"]:
-			for pattern in [
-				r" [\(\[]" + re.escape(delimiter) + " (.*?)[\)\]]",
-				r" - " + re.escape(delimiter) + " (.*)",
-				r" " + re.escape(delimiter) + " (.*)"
-			]:
-				matches = re.finditer(pattern,title,flags=re.IGNORECASE)
-				for match in matches:
-					title = match.re.sub('',match.string) # Remove matched part
-					artists += self.parseArtists(match.group(1)) # Parse matched artist string
+			patterns += [
+				r" [\(\[]" + re.escape(delimiter) + r" (.*?)[\)\]]",
+				r" - " + re.escape(delimiter) + r" (.*)",
+			]
+			# without brackets or a dash, bare words like "ft" or "feat" are too often part of the title
+			if delimiter.endswith(".") or delimiter.lower() == "featuring":
+				patterns.append(r" " + re.escape(delimiter) + r" (.*)")
+		# words like "with" are only a delimiter in brackets, e.g. Spotify's "One Kiss (with Dua Lipa)"
+		for delimiter in malojaconfig["DELIMITERS_FEAT_TITLE"]:
+			patterns.append(r" [\(\[]" + re.escape(delimiter) + r" (.*?)[\)\]]")
+		for pattern in patterns:
+			matches = re.finditer(pattern,title,flags=re.IGNORECASE)
+			for match in matches:
+				title = match.re.sub('',match.string) # Remove matched part
+				artists += self.parseArtists(match.group(1)) # Parse matched artist string
 
 
 
 		if malojaconfig["PARSE_REMIX_ARTISTS"]:
 			for filter in malojaconfig["FILTERS_REMIX"]:
 				for pattern in [
-					r" [\(\[](.*)" + re.escape(filter) + "[\)\]]", # match remix in brackets
+					r" [\(\[](.*)" + re.escape(filter) + r"[\)\]]", # match remix in brackets
 					r" - (.*)" + re.escape(filter) # match remix split with "-"
 				]:
 					match = re.search(pattern,title,flags=re.IGNORECASE)
