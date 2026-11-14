@@ -95,6 +95,7 @@ def main(*args,**kwargs):
 		"export":tasks.export,					# maloja export
 		"apidebug":apidebug.run,				# maloja apidebug
 		"parsealbums":tasks.parse_albums,		# maloja parsealbums --strategy majority
+		"reparsereport":tasks.reparse_report,	# maloja reparsereport --examples 10 --json report.json
 		# aux
 		"info":print_info,
 		"settings":print_settings
