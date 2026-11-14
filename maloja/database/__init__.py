@@ -71,9 +71,9 @@ def waitfordb(func):
 
 
 
-ISSUES = {}
-
-cla = CleanerAgent(known_artist=sqldb.is_known_artist)
+from . import rules
+# the one parser for scrobbles, imports and reparsing, rules come from the database
+cla = CleanerAgent(rules_loader=rules.load_rules, known_artist=sqldb.is_known_artist)
 
 
 
@@ -172,7 +172,7 @@ def rawscrobble_to_scrobbledict(rawscrobble, fix=True, client=None):
 		if scrobbleinfo.get('album_artists'):
 			scrobbleinfo['album_artists'] = cla.parseArtists(scrobbleinfo['album_artists'])
 		if scrobbleinfo.get("album_title"):
-			scrobbleinfo['album_title'] = cla.parseAlbumtitle(scrobbleinfo['album_title'])
+			scrobbleinfo['album_title'] = cla.parseAlbumtitle(scrobbleinfo['album_title'],scrobbleinfo.get('album_artists') or scrobbleinfo['track_artists'])
 	scrobbleinfo['scrobble_time'] = scrobbleinfo.get('scrobble_time') or int(datetime.datetime.now(tz=datetime.timezone.utc).timestamp())
 
 	# if we send [] as albumartists, it means various
@@ -301,14 +301,35 @@ def associate_albums_to_artist(target_id,source_ids,remove=False):
 	target = sqldb.get_artist(target_id)
 	if remove:
 		log(f"Removing {sources} from {target}")
-		sqldb.remove_artists_from_albums(artist_ids=[target_id],album_ids=source_ids)
+		sqldb.remove_artists_from_albums(artist_ids=[target_id],album_ids=source_ids,record_alias=True)
 	else:
 		log(f"Adding {sources} into {target}")
-		sqldb.add_artists_to_albums(artist_ids=[target_id],album_ids=source_ids)
+		sqldb.add_artists_to_albums(artist_ids=[target_id],album_ids=source_ids,record_alias=True)
 	result = {'sources':sources,'target':target}
 	dbcache.invalidate_entity_cache()
 	dbcache.invalidate_caches()
 
+	return result
+
+def get_duplicates(dbconn=None):
+	from . import duplicates
+	return duplicates.find_duplicates(dbconn=dbconn)
+
+def dismiss_duplicate(entity_type,ids):
+	from . import duplicates
+	duplicates.dismiss_duplicate(entity_type,ids)
+
+def get_aliases(dbconn=None):
+	return sqldb.list_aliases(dbconn=dbconn)
+
+@waitfordb
+def delete_alias(alias_id):
+	result = sqldb.delete_alias_by_id(alias_id)
+	if result:
+		log(f"Deleted alias {alias_id}")
+	# lookups through this alias are cached
+	dbcache.invalidate_entity_cache()
+	dbcache.invalidate_caches()
 	return result
 
 @waitfordb
@@ -317,10 +338,10 @@ def associate_tracks_to_artist(target_id,source_ids,remove=False):
 	target = sqldb.get_artist(target_id)
 	if remove:
 		log(f"Removing {sources} from {target}")
-		sqldb.remove_artists_from_tracks(artist_ids=[target_id],track_ids=source_ids)
+		sqldb.remove_artists_from_tracks(artist_ids=[target_id],track_ids=source_ids,record_alias=True)
 	else:
 		log(f"Adding {sources} into {target}")
-		sqldb.add_artists_to_tracks(artist_ids=[target_id],track_ids=source_ids)
+		sqldb.add_artists_to_tracks(artist_ids=[target_id],track_ids=source_ids,record_alias=True)
 	result = {'sources':sources,'target':target}
 	dbcache.invalidate_entity_cache()
 	dbcache.invalidate_caches()
@@ -946,40 +967,21 @@ def get_featured(dbconn=None):
 				break
 	return result
 
+def get_parser_rules(dbconn=None):
+	from ..cleanup import SCOPABLE
+	return {
+		"rules":rules.list_rules(dbconn=dbconn),
+		"rulesets":rules.list_rulesets(dbconn=dbconn),
+		"types":{t:{"desc":desc,"fields":fields,"lists":[i for i in range(len(fields)) if (t,i) in rules.LIST_FIELDS],"scopable":t in SCOPABLE} for t,(desc,fields) in rules.RULE_INFO.items()},
+	}
+
 def get_predefined_rulesets(dbconn=None):
-	validchars = "-_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-
-	rulesets = []
-
-	for f in os.listdir(data_dir['rules']("predefined")):
-		if f.endswith(".tsv"):
-
-			rawf = f.replace(".tsv","")
-			valid = all(char in validchars for char in rawf)
-			if not valid: continue
-			if "_" not in rawf: continue
-
-			try:
-				with open(data_dir['rules']("predefined",f)) as tsvfile:
-					line1 = tsvfile.readline()
-					line2 = tsvfile.readline()
-
-					if "# NAME: " in line1:
-						name = line1.replace("# NAME: ","")
-					else: name = rawf.split("_")[1]
-					desc = line2.replace("# DESC: ","") if "# DESC: " in line2 else ""
-					author = rawf.split("_")[0]
-			except Exception:
-				continue
-
-			ruleset = {"file":rawf}
-			rulesets.append(ruleset)
-			ruleset["active"] = bool(os.path.exists(data_dir['rules'](f)))
-			ruleset["name"] = name
-			ruleset["author"] = author
-			ruleset["desc"] = desc
-
-	return rulesets
+	states = rules.get_ruleset_states(dbconn=dbconn)
+	pending = {name for kind, name, _ in rules.pending_files() if kind == 'set'}
+	return [
+		{**ruleset, "active": states.get(ruleset["file"], False) or ruleset["file"] in pending}
+		for ruleset in rules.list_ruleset_files()
+	]
 
 
 ####
@@ -998,9 +1000,8 @@ def start_db():
 	upgrade.upgrade_db(sqldb.add_scrobbles)
 	upgrade.parse_old_albums()
 
-	# Load temporary tables
-	from . import associated
-	associated.load_associated_rules()
+	# rule files waiting in the rules folder go into the database, then the rules are loaded
+	rules.reload_rules()
 
 	# import scrobbles
 	from ..proccontrol.tasks.import_scrobbles import import_scrobbles #lmao this codebase is so fucked

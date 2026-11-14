@@ -83,6 +83,37 @@ RULES_CASES = [
 		"Main", "Collab Song", ["Main", "Guest"], "Collab Song",
 		id="fixartists-by-title",
 	),
+	# rules limited to an artist
+	pytest.param(
+		[("replacetitle", "RED", "Red", "artist=HyunA")],
+		"HyunA", "RED", ["HyunA"], "Red",
+		id="scoped-replacetitle",
+	),
+	pytest.param(
+		[("replacetitle", "RED", "Red", "artist=HyunA")],
+		"Taylor Swift", "RED", ["Taylor Swift"], "RED",
+		id="scoped-replacetitle-other-artist",
+	),
+	pytest.param(
+		[("replacetitle", "RED", "Red (global)"), ("replacetitle", "RED", "Red", "artist=hyuna")],
+		"Guest & HyunA", "RED", ["Guest", "HyunA"], "Red",
+		id="scoped-beats-global",
+	),
+	pytest.param(
+		[("fixartists", "Main␟Guest", "Collab Song", "artist=Main")],
+		"Other & Guest", "Collab Song", ["Other", "Guest"], "Collab Song",
+		id="scoped-fixartists-other-artist",
+	),
+	pytest.param(
+		[("artistintitle", "Areia Remix", "Areia", "artist=A")],
+		"A", "Song (Areia Remix)", ["A", "Areia"], "Song (Areia Remix)",
+		id="scoped-artistintitle",
+	),
+	pytest.param(
+		[("artistintitle", "Areia Remix", "Areia", "artist=A")],
+		"B", "Song (Areia Remix)", ["B"], "Song (Areia Remix)",
+		id="scoped-artistintitle-other-artist",
+	),
 ]
 
 
@@ -114,6 +145,36 @@ def test_known_artists(settings, values, artists_in, artists_out):
 	settings(**values)
 	artists, _, _ = cleanup.CleanerAgent(known_artist=lambda name: name in known).fullclean(artists_in, "Song", None)
 	assert artists == artists_out
+
+
+def test_parse_rules_tsv():
+	text = "# a comment\nreplacetitle\t\tRED\t\tRed\t# trailing comment\nreplacetitle\tonly one\nregexartist\ta\tb\n"
+	rules, errors = cleanup.parse_rules_tsv(text, source="file:x.tsv")
+	assert rules == [cleanup.Rule("replacetitle", ("RED", "Red"), source="file:x.tsv")]
+	assert errors == ["line 3: replacetitle needs 2 columns, got 1", "line 4: unknown rule type 'regexartist'"]
+
+	rules, errors = cleanup.parse_rules_tsv("replacetitle\tRED\tRed\tartist=HyunA\nreplaceartist\tA\tB\tartist=C\n")
+	assert rules == [cleanup.Rule("replacetitle", ("RED", "Red"), "HyunA")]
+	assert errors == ["line 2: replaceartist can't be limited to an artist"]
+
+
+def test_explain_lists_fired_rules(agent_with_rules):
+	agent = agent_with_rules(
+		("replaceartist", "Old", "New"),
+		("replacetitle", "RED", "Red"),
+		("addartists", "Nobody", "Red", "Extra"),
+	)
+	result = agent.explain("Old", "RED")
+	assert (result["artists"], result["title"]) == (["New"], "Red")
+	assert [(r.type, r.fields) for r in result["rules"]] == [("replaceartist", ("Old", "New")), ("replacetitle", ("RED", "Red"))]
+	# nothing is recorded outside explain
+	assert agent.fullclean("Old", "RED", None) == (["New"], "Red", None)
+
+
+def test_scoped_album_rule(agent_with_rules):
+	agent = agent_with_rules(("replacealbumtitle", "Greatest Hits", "Greatest Hits (2001)", "artist=A"))
+	assert agent.fullclean("A", "Song", "Greatest Hits")[2] == "Greatest Hits (2001)"
+	assert agent.fullclean("B", "Song", "Greatest Hits")[2] == "Greatest Hits"
 
 
 def test_cleanup_compiles_without_warnings():

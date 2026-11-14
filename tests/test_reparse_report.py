@@ -1,13 +1,10 @@
-import os
-
 import pytest
 import sqlalchemy as sql
 
 from maloja import database
-from maloja.cleanup import CleanerAgent
+from maloja.cleanup import CleanerAgent, parse_rules_tsv
 from maloja.database import sqldb
 from maloja.database.reparse_report import build_report
-from maloja.pkg_global.conf import data_dir
 
 
 # each case: what an older parser or rule set stored, and the raw input it got
@@ -42,10 +39,8 @@ CASES = [
 @pytest.fixture(scope="module")
 def report(module_db):
 	_, mp = module_db
-	rulesfile = data_dir["rules"]("reparse_report_tests.tsv")
-	with open(rulesfile, "w") as f:
-		f.write("replaceartist\tZeta Old\tZeta\n")
-	mp.setattr(database, "cla", CleanerAgent(known_artist=sqldb.is_known_artist))
+	rules, _ = parse_rules_tsv("replaceartist\tZeta Old\tZeta\n")
+	mp.setattr(database, "cla", CleanerAgent(rules=rules, known_artist=sqldb.is_known_artist))
 	sqldb.add_scrobbles([
 		{
 			"time": 1000 + i,
@@ -57,8 +52,7 @@ def report(module_db):
 	])
 	sqldb.add_alias("artist", "Iota Old", sqldb.get_artist_id("Iota"))
 	sqldb.add_alias("track", "Anthem (feat. Lambda)", sqldb.get_track_id({"artists": ["Kappa"], "title": "Anthem"}), artists=["Kappa", "Lambda"])
-	yield build_report()
-	os.remove(rulesfile)
+	return build_report()
 
 
 def test_coverage(report):
@@ -72,19 +66,28 @@ def test_track_changes(report):
 	tracks = report["tracks"]
 	assert (tracks["merges"]["count"], tracks["splits"]["count"], tracks["renames"]["count"], tracks["new"]) == (1, 1, 2, 3)
 
+	# every change carries the ids of the current tracks it would move
+	def track_id(artists, title):
+		return sqldb.get_track_id({"artists": artists, "title": title}, create_new=False)
+
 	merge, = tracks["merges"]["examples"]
 	assert merge["into"] == {"artists": ["Gamma"], "title": "Song"} and merge["existing"]
-	assert merge["from"] == [{"track": {"artists": ["Gamma"], "title": "Song (2009 Remaster)"}, "scrobbles": 1}]
+	assert merge["into_id"] == track_id(["Gamma"], "Song")
+	remaster = track_id(["Gamma"], "Song (2009 Remaster)")
+	assert merge["from"] == [{"track": {"artists": ["Gamma"], "title": "Song (2009 Remaster)"}, "track_id": remaster, "scrobbles": 1}]
+	assert merge["track_ids"] == [remaster]
 
-	assert tracks["reordered"]["examples"] == [{"track": {"artists": ["Omega", "Psi"], "title": "Order"}, "credited": ["Psi", "Omega"], "scrobbles": 1}]
+	order = track_id(["Omega", "Psi"], "Order")
+	assert tracks["reordered"]["examples"] == [{"track": {"artists": ["Omega", "Psi"], "title": "Order"}, "track_id": order, "track_ids": [order], "credited": ["Psi", "Omega"], "scrobbles": 1}]
 
 	split, = tracks["splits"]["examples"]
 	assert split["track"]["title"] == "Track X"
-	assert [i["track"]["title"] for i in split["into"]] == ["Track X", "Track X (feat. Epsilon)"]
+	assert split["track_ids"] == [track_id(["Delta"], "Track X")]
+	assert [(i["track"]["title"], i["track_id"]) for i in split["into"]] == [("Track X", split["track_id"]), ("Track X (feat. Epsilon)", None)]
 
-	assert {(r["track"]["title"], tuple(r["to"]["artists"]), tuple(r["changed"])) for r in tracks["renames"]["examples"]} == {
-		("Pair", ("Mu", "Nu"), ("artists",)),
-		("Tune", ("Zeta",), ("artists",)),
+	assert {(r["track"]["title"], tuple(r["to"]["artists"]), tuple(r["changed"]), tuple(r["track_ids"])) for r in tracks["renames"]["examples"]} == {
+		("Pair", ("Mu", "Nu"), ("artists",), (track_id(["Mu Nu"], "Pair"),)),
+		("Tune", ("Zeta",), ("artists",), (track_id(["Zeta Old"], "Tune"),)),
 	}
 
 

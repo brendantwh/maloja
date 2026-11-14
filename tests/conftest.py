@@ -11,13 +11,13 @@ os.environ["MALOJA_SKIP_SETUP"] = "yes"
 
 import pytest
 
-from maloja.cleanup import CleanerAgent
-from maloja.pkg_global.conf import data_dir, malojaconfig
+from maloja.cleanup import CleanerAgent, parse_rules_tsv
+from maloja.pkg_global.conf import malojaconfig
 
 
 @pytest.fixture
 def agent():
-	return CleanerAgent()
+	return CleanerAgent(rules=[])
 
 
 @pytest.fixture
@@ -33,7 +33,7 @@ def settings(monkeypatch):
 def _empty_db(monkeypatch):
 	# all tests share one data directory, so each database test starts from an empty one
 	from maloja import database
-	from maloja.database import dbcache, sqldb
+	from maloja.database import dbcache, rules, sqldb
 	from maloja.pkg_global import conf
 
 	# in AUX_MODE cache invalidation is a no-op, so cached ids would leak between tests
@@ -45,6 +45,8 @@ def _empty_db(monkeypatch):
 	dbcache.invalidate_entity_cache()
 	dbcache.invalidate_caches()
 	sqldb.forget_known_artists()
+	# a fresh parser, so rules loaded by an earlier test don't stick around
+	monkeypatch.setattr(database, "cla", CleanerAgent(rules_loader=rules.load_rules, known_artist=sqldb.is_known_artist))
 	return database
 
 
@@ -61,13 +63,9 @@ def module_db():
 
 @pytest.fixture
 def agent_with_rules():
-	rulesfile = data_dir["rules"]("tests.tsv")
-
 	def make(*rules):
-		with open(rulesfile, "w") as f:
-			f.writelines("\t".join(rule) + "\n" for rule in rules)
-		return CleanerAgent()
+		parsed, errors = parse_rules_tsv("".join("\t".join(rule) + "\n" for rule in rules))
+		assert not errors
+		return CleanerAgent(rules=parsed)
 
-	yield make
-	if os.path.exists(rulesfile):
-		os.remove(rulesfile)
+	return make

@@ -1,64 +1,187 @@
 import re
 import os
+import io
 import csv
+import contextvars
+from dataclasses import dataclass
 
 from .pkg_global.conf import data_dir, malojaconfig
 
-# need to do this as a class so it can retain loaded settings from file
-# apparently this is not true
-# I'm dumb
+# rule types and how many columns each needs after the type
+RULE_COLUMNS = {
+	"notanartist": 1,
+	"belongtogether": 1,
+	"ignoreartist": 1,
+	"replacetitle": 2,
+	"replacealbumtitle": 2,
+	"replaceartist": 2,
+	"countas": 2,
+	"artistintitle": 2,
+	"fixartists": 2,
+	"addartists": 3,
+}
+
+
+# rules that can be limited to an artist ("artist=Name" column in a rule file)
+SCOPABLE = {"replacetitle", "replacealbumtitle", "addartists", "fixartists", "artistintitle"}
+SCOPE_PREFIX = "artist="
+# the column a rule is matched by (the first one, unless listed here)
+MATCH_COLUMN = {"addartists": 1, "fixartists": 1}
+# these match the exact spelling, all others ignore case
+CASE_SENSITIVE = {"belongtogether", "notanartist"}
+
+
+@dataclass(frozen=True)
+class Rule:
+	type: str
+	fields: tuple
+	scope: str = None
+	id: int = None
+	source: str = None
+
+
+def parse_rules_tsv(text, source=None):
+	"""Parse rules in the TSV format (see rules.info). Returns (rules, errors)."""
+	rules, errors = [], []
+	for number, entry in enumerate(csv.reader(io.StringIO(text), delimiter="\t"), start=1):
+		# empty columns are dropped, so columns can be lined up with several tabs
+		entry = [col for col in entry if col]
+		if not entry or entry[0].startswith('#'):
+			continue
+		ruletype, rest = entry[0], entry[1:]
+		if ruletype not in RULE_COLUMNS:
+			errors.append(f"line {number}: unknown rule type {ruletype!r}")
+			continue
+		needed = RULE_COLUMNS[ruletype]
+		if len(rest) < needed:
+			errors.append(f"line {number}: {ruletype} needs {needed} columns, got {len(rest)}")
+			continue
+		# additional columns (often trailing comments) are ignored, except for the artist scope
+		scopes = [col[len(SCOPE_PREFIX):].strip() for col in rest[needed:] if col.startswith(SCOPE_PREFIX)]
+		if scopes and ruletype not in SCOPABLE:
+			errors.append(f"line {number}: {ruletype} can't be limited to an artist")
+			continue
+		rules.append(Rule(ruletype, tuple(rest[:needed]), scopes[0] if scopes else None, source=source))
+	return rules, errors
+
+
+def read_rule_files(folder):
+	rules = []
+	try:
+		files = sorted(os.listdir(folder))
+	except FileNotFoundError:
+		return rules
+	for f in files:
+		if f.split('.')[-1].lower() != 'tsv': continue
+		with open(os.path.join(folder, f), 'r') as filed:
+			rules += parse_rules_tsv(filed.read(), source=f"file:{f}")[0]
+	return rules
+
+
+class RuleBook:
+	"""The rules in the shape the parser looks them up.
+	Later rules win over earlier ones, and a rule limited to an artist wins over one that isn't."""
+
+	def __init__(self, rules):
+		self.rules = list(rules)
+		self.tables = {}  # type -> {(scope, match): rule}
+		for rule in self.rules:
+			scope = rule.scope.casefold() if rule.scope else None
+			self.tables.setdefault(rule.type, {})[(scope, self.matchkey(rule.type, rule.fields[MATCH_COLUMN.get(rule.type, 0)]))] = rule
+
+	@staticmethod
+	def matchkey(ruletype, value):
+		return value if ruletype in CASE_SENSITIVE else value.lower()
+
+	def find(self, ruletype, value, artists=()):
+		"""The rule for this value, preferring one limited to the first matching artist."""
+		table = self.tables.get(ruletype, {})
+		key = self.matchkey(ruletype, value)
+		for artist in artists:
+			rule = table.get((artist.casefold(), key))
+			if rule:
+				return rule
+		return table.get((None, key))
+
+	def all(self, ruletype, artists=()):
+		"""All rules of a type that apply with these artists, one per match value."""
+		scopes = [a.casefold() for a in artists]
+		found = {}
+		for (scope, key), rule in self.tables.get(ruletype, {}).items():
+			if scope is None:
+				found.setdefault(key, rule)
+			elif scope in scopes:
+				found[key] = rule
+		return list(found.values())
+
+
+# rules that fired during CleanerAgent.explain, per thread or task
+_fired = contextvars.ContextVar("fired_rules", default=None)
+
+def fired(rule):
+	trace = _fired.get()
+	if trace is not None and rule not in trace:
+		trace.append(rule)
+	return rule
+
+
 class CleanerAgent:
 
-	def __init__(self,known_artist=None):
+	def __init__(self, rules=None, rules_loader=None, known_artist=None):
 		# optional callback: is this exact name already a known artist? (see sqldb.is_known_artist)
 		self.known_artist = known_artist
-		self.updateRules()
+		# rules are either given, or loaded on first use (by default from the rule files)
+		self.rules_loader = rules_loader or (lambda: read_rule_files(data_dir["rules"]()))
+		self._book = None
+		if rules is not None:
+			self.set_rules(rules)
 
-	def updateRules(self):
+	def set_rules(self, rules):
+		# built completely before it's swapped in, so a parse running at the same time never sees half of it
+		self._book = RuleBook(rules)
 
-		rawrules = []
+	@property
+	def book(self):
+		if self._book is None:
+			self.set_rules(self.rules_loader())
+		return self._book
+
+	@property
+	def rules(self):
+		return self.book.rules
+
+
+	def explain(self,artist,title,album=None):
+		"""Like fullclean, but also returns the rules that fired, in the order they did."""
+		token = _fired.set([])
 		try:
-			for f in os.listdir(data_dir["rules"]()):
-				if f.split('.')[-1].lower() != 'tsv': continue
-				filepath = data_dir["rules"](f)
-				with open(filepath,'r') as filed:
-					reader = csv.reader(filed,delimiter="\t")
-					rawrules += [[col for col in entry if col] for entry in reader if len(entry)>0 and not entry[0].startswith('#')]
-		except FileNotFoundError:
-			pass
-
-		self.rules_belongtogether = [r[1] for r in rawrules if r[0]=="belongtogether"]
-		self.rules_notanartist = [r[1] for r in rawrules if r[0]=="notanartist"]
-		self.rules_replacetitle = {r[1].lower():r[2] for r in rawrules if r[0]=="replacetitle"}
-		self.rules_replacealbumtitle = {r[1].lower():r[2] for r in rawrules if r[0]=="replacealbumtitle"}
-		self.rules_replaceartist = {r[1].lower():r[2] for r in rawrules if r[0]=="replaceartist"}
-		self.rules_ignoreartist = [r[1].lower() for r in rawrules if r[0]=="ignoreartist"]
-		self.rules_addartists = {r[2].lower():(r[1].lower(),r[3]) for r in rawrules if r[0]=="addartists"}
-		self.rules_fixartists = {r[2].lower():r[1] for r in rawrules if r[0]=="fixartists"}
-		self.rules_artistintitle = {r[1].lower():r[2] for r in rawrules if r[0]=="artistintitle"}
-		#self.rules_regexartist = [[b,c] for [a,b,c,d] in raw if a=="regexartist"]
-		#self.rules_regextitle = [[b,c] for [a,b,c,d] in raw if a=="regextitle"]
-
-
+			artists,title,album = self.fullclean(artist,title,album)
+			return {'artists':artists,'title':title,'album':album,'rules':_fired.get()}
+		finally:
+			_fired.reset(token)
 
 	def fullclean(self,artist,title,album):
 		artists = self.parseArtists(self.removespecial(artist))
-		title = self.parseTitle(self.removespecial(title))
-		(stripped,moreartists) = self.parseTitleForArtists(title)
+		title = self.parseTitle(self.removespecial(title),artists)
+		(stripped,moreartists) = self.parseTitleForArtists(title,artists)
 		# off by default: the full title, including "(feat. X)", is kept on purpose
 		if malojaconfig["TITLE_STRIP_FEAT"]:
 			title = stripped
 		artists += moreartists
-		if title.lower() in self.rules_addartists:
-			reqartists, allartists = self.rules_addartists[title.lower()]
-			reqartists = reqartists.split("␟")
+		addrule = self.book.find("addartists",title,artists)
+		fixrule = self.book.find("fixartists",title,artists)
+		if addrule:
+			reqartists, _, allartists = addrule.fields
+			reqartists = reqartists.lower().split("␟")
 			allartists = allartists.split("␟")
 			if set(reqartists).issubset({a.lower() for a in artists}):
+				fired(addrule)
 				artists += allartists
-		elif title.lower() in self.rules_fixartists:
-			allartists = self.rules_fixartists[title.lower()]
+		elif fixrule:
+			allartists = fixrule.fields[0]
 			allartists = allartists.split("␟")
 			if len({a.lower() for a in allartists} & {a.lower() for a in artists}) > 0:
+				fired(fixrule)
 				artists = allartists
 		# main artist first, in the order they were credited
 		artists = list(dict.fromkeys(artists))
@@ -66,7 +189,7 @@ class CleanerAgent:
 			artists.sort()
 
 		if album is not None:
-			album = self.parseAlbumtitle(album)
+			album = self.parseAlbumtitle(album,artists)
 			album = album.strip()
 
 		return (artists,title.strip(),album)
@@ -78,11 +201,6 @@ class CleanerAgent:
 		s = re.sub(" +"," ",s)
 		return s
 
-
-	# if an artist appears in any created rule, we can assume that artist is meant to exist and be spelled like that
-	def confirmedReal(self,a):
-		confirmed = self.rules_belongtogether + [self.rules_replaceartist[r] for r in self.rules_replaceartist]
-		return (a in confirmed)
 
 	#Delimiters used for extra artists, even when in the title field
 	#delimiters_feat = ["ft.","ft","feat.","feat","featuring","Ft.","Ft","Feat.","Feat","Featuring"]
@@ -103,22 +221,26 @@ class CleanerAgent:
 		if a.strip() in malojaconfig["INVALID_ARTISTS"]:
 			return []
 
-		if a.strip().lower() in self.rules_ignoreartist:
+		if rule := self.book.find("ignoreartist",a.strip()):
+			fired(rule)
 			return []
 
 		if a.strip() == "":
 			return []
 
-		if a.strip() in self.rules_notanartist:
+		if rule := self.book.find("notanartist",a.strip()):
+			fired(rule)
 			return []
 
 		if " performing " in a.lower():
 			return self.parseArtists(re.split(" [Pp]erforming",a)[0])
 
-		if a.strip() in self.rules_belongtogether:
+		if rule := self.book.find("belongtogether",a.strip()):
+			fired(rule)
 			return [a.strip()]
-		if a.strip().lower() in self.rules_replaceartist:
-			return self.rules_replaceartist[a.strip().lower()].split("␟")
+		replacement = self.book.find("replaceartist",a.strip())
+		if replacement:
+			return fired(replacement).fields[1].split("␟")
 
 
 
@@ -173,9 +295,10 @@ class CleanerAgent:
 	def isKnownArtist(self,a):
 		return bool(self.known_artist and malojaconfig["ARTIST_KEEP_KNOWN"] and self.known_artist(a.strip()))
 
-	def parseTitle(self,t):
-		if t.strip().lower() in self.rules_replacetitle:
-			return self.rules_replacetitle[t.strip().lower()]
+	def parseTitle(self,t,artists=()):
+		replacement = self.book.find("replacetitle",t.strip(),artists)
+		if replacement:
+			return fired(replacement).fields[1]
 
 		t = t.replace("[","(").replace("]",")")
 
@@ -203,8 +326,10 @@ class CleanerAgent:
 		("TITLE_MERGE_MONO_STEREO", r"(\d{4} )?(mono|stereo)( (version|mix))?"),
 	]
 
-	def stripVariants(self,t):
-		patterns = [p for setting,p in self.title_variants if malojaconfig[setting]]
+	def stripVariants(self,t,patterns=None):
+		# the settings decide which variants are stripped, unless the patterns are given
+		if patterns is None:
+			patterns = [p for setting,p in self.title_variants if malojaconfig[setting]]
 		if not patterns:
 			return t
 
@@ -227,7 +352,7 @@ class CleanerAgent:
 
 		return stripped if stripped.strip() else t
 
-	def parseTitleForArtists(self,title):
+	def parseTitleForArtists(self,title,known=()):
 		artists = []
 		patterns = []
 		for delimiter in malojaconfig["DELIMITERS_FEAT"]:
@@ -267,13 +392,14 @@ class CleanerAgent:
 
 
 
-		for st in self.rules_artistintitle:
-			if st in title.lower(): artists += self.rules_artistintitle[st].split("␟")
+		for rule in self.book.all("artistintitle",known):
+			if rule.fields[0].lower() in title.lower(): artists += fired(rule).fields[1].split("␟")
 		return (title,artists)
 
-	def parseAlbumtitle(self,t):
-		if t.strip().lower() in self.rules_replacealbumtitle:
-			return self.rules_replacealbumtitle[t.strip().lower()]
+	def parseAlbumtitle(self,t,artists=()):
+		replacement = self.book.find("replacealbumtitle",t.strip(),artists)
+		if replacement:
+			return fired(replacement).fields[1]
 
 		t = t.replace("[","(").replace("]",")")
 
@@ -284,15 +410,3 @@ class CleanerAgent:
 		t = t.strip()
 		return t
 
-
-def flatten(lis):
-
-	newlist = []
-
-	for l in lis:
-		if isinstance(l, str):
-			newlist.append(l)
-		else:
-			newlist += l
-
-	return list(set(newlist))

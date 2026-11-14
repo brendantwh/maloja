@@ -7,12 +7,11 @@ from ...cleanup import *
 from ...pkg_global.conf import data_dir
 
 
-def known_artist(name):
+def parser():
+	# the same parser (and rules) as incoming scrobbles
 	# imported lazily, so loading this module doesn't open the database
-	from ...database.sqldb import is_known_artist
-	return is_known_artist(name)
-
-c = CleanerAgent(known_artist=known_artist)
+	from ... import database
+	return database.cla
 
 outputs = {
 	"CONFIDENT_IMPORT": lambda msg: None,
@@ -94,6 +93,13 @@ def import_scrobbles(inputf):
 	print(f"Parsing {col['yellow'](inputf)} as {col['cyan'](typedesc)} export.")
 	print(col['red']("Please double-check if this is correct - if the import fails, the file might have been interpreted as the wrong type."))
 
+	# a maloja export also has rules and aliases: rules first, so the scrobbles are cleaned with them
+	extras = None
+	if typeid == "maloja":
+		with open(inputf,'r') as inputfd:
+			extras = json.load(inputfd)
+		import_maloja_rules(extras)
+
 	timestamps = set()
 	scrobblebuffer = []
 
@@ -108,7 +114,7 @@ def import_scrobbles(inputf):
 			timestamps.add(scrobble['scrobble_time'])
 
 			# clean up
-			(scrobble['track_artists'],scrobble['track_title'],scrobble['album_name']) = c.fullclean(scrobble['track_artists'],scrobble['track_title'],scrobble.get('album_name'))
+			(scrobble['track_artists'],scrobble['track_title'],scrobble['album_name']) = parser().fullclean(scrobble['track_artists'],scrobble['track_title'],scrobble.get('album_name'))
 
 			# extra info
 			extrainfo = {}
@@ -136,6 +142,10 @@ def import_scrobbles(inputf):
 				scrobblebuffer = []
 
 	add_scrobbles(scrobblebuffer)
+
+	# aliases point at entities, which only exist now
+	if extras is not None:
+		import_maloja_aliases(extras)
 
 	msg = f"Successfully imported {result['CONFIDENT_IMPORT'] + result['UNCERTAIN_IMPORT']} scrobbles"
 	if result['UNCERTAIN_IMPORT'] > 0:
@@ -504,6 +514,25 @@ def parse_rockbox(inputf):
 				except Exception as e:
 					yield ('FAIL',None,f"{line} could not be parsed. Scrobble not imported. ({repr(e)})")
 					continue
+
+
+def import_maloja_rules(data):
+	from ...database import rules
+	if 'rules' not in data:
+		return
+	result = rules.import_data(data['rules'])
+	print(f"Imported {result['added']} rules")
+	for e in result['errors']:
+		print(col['red'](f"Rule not imported: {e}"))
+	rules.reload_rules()
+
+
+def import_maloja_aliases(data):
+	from ...database.sqldb import import_aliases
+	if 'aliases' not in data:
+		return
+	imported, skipped = import_aliases(data['aliases'])
+	print(f"Imported {imported} aliases" + (f", skipped {skipped} whose target isn't in this database" if skipped else ""))
 
 
 def parse_maloja(inputf):

@@ -81,6 +81,39 @@ def test_no_aliases_recorded_when_switched_off(db, settings):
 	assert aliases() == {}
 
 
+def test_adding_and_removing_artists_records_aliases(db):
+	track = scrobble(1, ["Daft Punk", "Pharrell Williams"], "Get Lucky", album={"albumtitle": "RAM", "artists": ["Daft Punk", "Pharrell Williams"]})
+	track_id, album_id = sqldb.get_track_id(track), sqldb.get_album_id(track["album"])
+	pharrell = sqldb.get_artist_id("Pharrell Williams")
+	db.associate_tracks_to_artist(pharrell, [track_id], remove=True)
+	db.associate_albums_to_artist(pharrell, [album_id], remove=True)
+	# a player that still credits both artists lands on the edited track and album
+	assert sqldb.get_track_id({"artists": ["Daft Punk", "Pharrell Williams"], "title": "Get Lucky"}) == track_id
+	assert sqldb.get_album_id({"albumtitle": "RAM", "artists": ["Daft Punk", "Pharrell Williams"]}) == album_id
+	nile = sqldb.get_artist_id("Nile Rodgers")
+	db.associate_tracks_to_artist(nile, [track_id])
+	assert sqldb.get_track_id({"artists": ["Daft Punk"], "title": "Get Lucky"}) == track_id
+	# removing an artist that isn't on the track changes nothing, so nothing is recorded
+	def rows():
+		with sqldb.engine.connect() as conn:
+			return conn.execute(sqldb.DB["aliases"].select().with_only_columns(sqldb.DB["aliases"].c.name_normalized, sqldb.DB["aliases"].c.artists_normalized)).all()
+	before = rows()
+	db.associate_tracks_to_artist(sqldb.get_artist_id("Someone Else"), [track_id], remove=True)
+	assert rows() == before
+
+
+def test_list_and_delete_aliases(db):
+	scrobble(1, ["Beyonce Knowles"], "Halo")
+	db.edit_artist(sqldb.get_artist_id("Beyonce Knowles"), "Beyoncé")
+	(alias,) = db.get_aliases()
+	assert (alias["entity_type"], alias["name"], alias["target"], alias["source"]) == ("artist", "beyonce knowles", "Beyoncé", "rename")
+	assert sqldb.is_known_artist("Beyonce Knowles")
+	assert db.delete_alias(alias["id"])
+	assert db.get_aliases() == []
+	assert not sqldb.is_known_artist("Beyonce Knowles")
+	assert sqldb.get_artist_id("Beyonce Knowles") != sqldb.get_artist_id("Beyoncé")
+
+
 def test_clean_db_keeps_aliases_of_existing_entities(db):
 	scrobble(1, ["Kept"], "Song")
 	sqldb.add_alias("artist", "Kept Old", sqldb.get_artist_id("Kept"))
