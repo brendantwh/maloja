@@ -1,0 +1,40 @@
+{# the Library admin tab: rules, rule sets, aliases, duplicates and reparse as sub-tabs
+   pages fill libscripts and librarycontent; library.js loads with defer, so page scripts
+   should only use Lib from event handlers or DOMContentLoaded #}
+{% extends "abstracts/admin.jinja" %}
+
+{% block scripts %}
+	<link rel="stylesheet" href="/library.css?v={{ asset_version }}" />
+	<script src="/library.js?v={{ asset_version }}" defer></script>
+	{% block libscripts %}{% endblock %}
+{% endblock %}
+
+{% block maincontent %}
+	{% set dupcounts = dbc.get_duplicate_counts() %}
+	<div class="library">
+		<nav class="sub">
+			{% for tab_url, tab_name in [
+				['rules', 'Rules'],
+				['rulesets', 'Rule sets'],
+				['aliases', 'Aliases'],
+				['duplicates', 'Duplicates'],
+				['reparse', 'Reparse']
+			] %}
+			<a href="/admin_{{ tab_url }}" class="{{ 'active' if page == 'admin_' + tab_url }}">{{ tab_name }}
+				{%- if tab_url == 'duplicates' %} <span class="badge" id="lib-dup-badge">{{ (dupcounts.artists + dupcounts.tracks) or '' }}</span>{% endif -%}
+			</a>
+			{% endfor %}
+		</nav>
+
+		{% block librarycontent %}{% endblock %}
+
+		<div class="bar" id="lib-bar"></div>
+		<div class="scrim" id="lib-scrim" data-click="lib-close"></div>
+		<aside class="drawer" id="lib-drawer">
+			<header><h3 id="lib-drawer-title"></h3><button type="button" class="icon-btn" data-click="lib-close" title="Close" style="font-size:18px">✕</button></header>
+			<div class="body" id="lib-drawer-body"></div>
+			<footer id="lib-drawer-foot"></footer>
+		</aside>
+		<div class="toasts" id="lib-toasts"></div>
+	</div>
+{% endblock %}

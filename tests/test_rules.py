@@ -43,6 +43,48 @@ def test_rule_file_is_imported_once(folder):
 	assert fields(rules.load_rules(import_files=True)) == [("replacetitle", ("RED", "Red"))]
 
 
+def test_bad_line_in_rule_file_is_skipped(folder):
+	# a column of only spaces used to be accepted, now it fails validation
+	folder("mine.tsv", "replacetitle\tFoo\t \tBar\nreplacetitle\tRED\tRed\n")
+	assert fields(rules.load_rules(import_files=True)) == [("replacetitle", ("RED", "Red"))]
+	assert sorted(os.listdir(data_dir["rules"]())) == ["mine.tsv.imported", "predefined"]
+
+
+def test_failed_import_leaves_files_in_place(folder):
+	folder("a.tsv", "replacetitle\tRED\tRed\n")
+	with open(data_dir["rules"]("b.tsv"), "wb") as f:
+		f.write(b"replacetitle\t\xff\tRed\n")
+	with pytest.raises(UnicodeDecodeError):
+		rules.load_rules(import_files=True)
+	# nothing was committed, so the files must still be there to be read again
+	assert sorted(os.listdir(data_dir["rules"]())) == ["a.tsv", "b.tsv", "predefined"]
+	with sqldb.engine.connect() as conn:
+		assert conn.execute(sql.select(sqldb.DB["rules"])).all() == []
+
+
+def test_unmovable_rule_file_is_not_imported_again(folder, monkeypatch):
+	def read_only(*args):
+		raise OSError("read-only file system")
+	monkeypatch.setattr(os, "rename", read_only)
+	monkeypatch.setattr(os, "remove", read_only)
+	folder("mine.tsv", "replacetitle\tRED\tRed\n")
+	os.symlink(data_dir["rules"]("predefined", "test_set.tsv"), data_dir["rules"]("test_set.tsv"))
+	rules.reload_rules()
+	(rule,) = rules.list_rules()
+	# what the web interface does: delete the rule, switch the set off, and reload after each change
+	rules.delete_rule(rule["id"])
+	rules.reload_rules()
+	rules.set_ruleset_enabled("test_set", False)
+	rules.reload_rules()
+	assert rules.list_rules() == []
+	assert rules.get_ruleset_states() == {"test_set": False}
+	assert not any(s["active"] for s in rules.list_rulesets())
+	# a changed file is new rules, so it's imported
+	folder("mine.tsv", "replacetitle\tBLUE\tBlue\n")
+	rules.reload_rules()
+	assert [r["fields"] for r in rules.list_rules()] == [["BLUE", "Blue"]]
+
+
 def test_symlink_switches_set_on(folder):
 	os.symlink(data_dir["rules"]("predefined", "test_set.tsv"), data_dir["rules"]("test_set.tsv"))
 	loaded = rules.load_rules(import_files=True)
@@ -107,6 +149,15 @@ def test_tsv_round_trip(folder):
 	assert rules.import_tsv(text + "replacetitle\tbroken\n") == {"added": 1, "existing": 0, "errors": ["line 6: replacetitle needs 2 columns, got 1"]}
 	assert [(r.type, r.fields, r.scope) for r in rules.load_rules()] == [("replacetitle", ("RED", "Red"), "HyunA")]
 	assert rules.import_tsv(text)["existing"] == 1
+
+
+def test_tsv_round_trip_keeps_quotes(folder):
+	rules.add_rule("replaceartist", ['"Weird Al" Yankovic', "Weird Al Yankovic"])
+	text = rules.export_tsv()
+	for rule in rules.list_rules():
+		rules.delete_rule(rule["id"])
+	assert rules.import_tsv(text)["added"] == 1
+	assert [r.fields for r in rules.load_rules()] == [('"Weird Al" Yankovic', "Weird Al Yankovic")]
 
 
 def test_invalid_rules_are_refused(folder):

@@ -1,152 +1,191 @@
 {% set page ='admin_reparse' %}
-{% extends "abstracts/admin.jinja" %}
+{% extends "abstracts/library.jinja" %}
 {% block title %}Maloja - Reparse{% endblock %}
 
-{% block scripts %}
-	<style>
-		#reparse_groups h3 { margin-bottom: 4px; }
-		#reparse_groups table.misc td { vertical-align: top; }
-		#reparse_groups .count { opacity: 0.6; }
-		.reparse-summary td { padding-right: 20px; }
-	</style>
+{% block libscripts %}
 	<script>
-		const SHOWN = 50;
-		let polling = null;
+	document.addEventListener('DOMContentLoaded', function() {
+		const { $, esc, plural, trackDiff, toast, api } = Lib;
+		const PAGE = 50;
 
-		function el(tag, text, cls) {
-			const e = document.createElement(tag);
-			if (text !== undefined) { e.textContent = text; }
-			if (cls) { e.className = cls; }
-			return e;
+		// state comes from the server's job; 'start' is ours, for a discarded preview
+		let job = { state: 'idle' }, discarded = false, polling = null;
+		let tab = null, unticked = new Set(), reorder = true, limit = {};
+
+		const rowsOf = report => {
+			const t = report.tracks, num = n => `<span class="count">(${n})</span>`;
+			return {
+				merges: { label: 'Merges', items: t.merges.examples.map(m => ({
+					ids: m.track_ids, n: m.scrobbles,
+					why: m.existing ? 'Merges into a track you already have' : 'Becomes one new track',
+					before: m.from.map(f => `${trackDiff(f.track, m.into)[0]} ${num(f.scrobbles)}`).join('<br>'),
+					after: trackDiff(m.from[0].track, m.into)[1] + (m.existing ? '' : ' <span class="tag">new</span>') })) },
+				splits: { label: 'Splits', items: t.splits.examples.map(s => ({
+					ids: s.track_ids, n: s.scrobbles, why: 'Its scrobbles go to different tracks',
+					before: trackDiff(s.track, s.into[0].track)[0],
+					after: s.into.map(i => `${trackDiff(s.track, i.track)[1]} ${num(i.scrobbles)}`).join('<br>') })) },
+				changes: { label: 'Changes', items: t.renames.examples.map(r => {
+					const [before, after] = trackDiff(r.track, r.to);
+					const what = r.changed.length === 2 ? 'Title and artists change' : r.changed[0] === 'title' ? 'Title changes' : 'Artists change';
+					return { ids: r.track_ids, n: r.scrobbles, why: what, before, after };
+				}) },
+				order: { label: 'Artist order', order: true, items: t.reordered.examples.map(r => {
+					const [before, after] = trackDiff(r.track, { artists: r.credited, title: r.track.title });
+					return { ids: r.track_ids, n: r.scrobbles, why: 'Order the artists were credited in', before, after };
+				}) },
+			};
+		};
+		let rows = null;
+
+		const counted = () => Object.entries(rows).filter(([, k]) => reorder || !k.order);
+		function counts() {
+			let picked = 0, total = 0;
+			for (const [key, k] of counted()) k.items.forEach((_, i) => { total++; if (!unticked.has(key + i)) picked++; });
+			return { picked, total };
 		}
-		function trackname(t) { return t.artists.join(', ') + ' – ' + t.title; }
 
-		function startPreview() {
-			neo.xhttpreq("/apis/mlj_1/reparse_preview", {}, "POST", function(req) {
-				notifyCallback(req);
-				if (req.status == 200) { poll(); }
-			}, true);
+		function stepper() {
+			const at = { idle: 0, previewing: 0, ready: 1, applying: 2, done: 3, error: 2 }[discarded ? 'idle' : job.state] ?? 0;
+			$('stepper').innerHTML = ['Preview', 'Review', 'Apply'].map((s, i) =>
+				`<div class="step ${i < at ? 'done' : i === at ? 'current' : ''}"><span class="dot">${i < at ? '✓' : i + 1}</span>${s}</div>${i < 2 ? '<div class="line"></div>' : ''}`).join('');
 		}
 
-		function poll() {
-			neo.xhttpreq("/apis/mlj_1/reparse_status", {'report': 'yes'}, "GET", function(req) {
-				// neo only parses json responses of POST requests
-				const job = (typeof req.response === 'string') ? JSON.parse(req.response) : req.response;
-				show(job);
-				clearTimeout(polling);
-				if (['previewing', 'applying'].includes(job.state)) { polling = setTimeout(poll, 1500); }
-			}, true);
-		}
-
-		function show(job) {
-			const state = document.getElementById('reparse_state');
-			const groups = document.getElementById('reparse_groups');
-			const apply = document.getElementById('reparse_apply');
-			apply.style.display = 'none';
-			document.getElementById('preview_button').disabled = ['previewing', 'applying'].includes(job.state);
-			if (job.state == 'idle') { state.textContent = 'No preview yet.'; groups.replaceChildren(); return; }
-			if (job.state == 'previewing') { state.textContent = 'Working out what would change…'; return; }
-			if (job.state == 'applying') {
-				const [done, total] = job.progress;
-				state.textContent = 'Applying… ' + done.toLocaleString() + ' of ' + total.toLocaleString() + ' scrobbles.';
-				groups.replaceChildren();
-				return;
-			}
-			if (job.state == 'error') { state.textContent = 'Something went wrong: ' + job.error; return; }
-			if (job.state == 'done') {
+		function render() {
+			stepper();
+			const body = $('reparse-body'), state = discarded ? 'idle' : job.state;
+			$('lib-bar').classList.toggle('show', state === 'ready');
+			if (state === 'idle') {
+				body.innerHTML = `<div class="card" style="max-width:560px">
+					<div class="name">See what would change</div>
+					<div class="desc">Maloja reads every scrobble again with your current rules and settings, and shows you the differences. Nothing changes yet.</div>
+					<div><button type="button" class="btn" data-click="preview">Preview changes</button></div></div>`;
+			} else if (state === 'previewing') {
+				body.innerHTML = `<div class="count"><span class="spinner"></span>Reading your scrobbles again…</div>`;
+			} else if (state === 'applying') {
+				const [done, total] = job.progress || [0, 0];
+				body.innerHTML = `<div style="max-width:560px">
+					<div style="margin-bottom:10px"><span class="spinner"></span>${total ? `Applying… <span class="count">${done.toLocaleString()} of ${total.toLocaleString()} scrobbles</span>` : 'Saving a copy of your database…'}</div>
+					<div class="progress"><div style="width:${total ? done / total * 100 : 0}%"></div></div>
+					<div class="count" style="margin-top:10px;font-size:13px">Maloja keeps running, new scrobbles still come in.</div></div>`;
+			} else if (state === 'done') {
 				const r = job.result;
-				state.textContent = 'Done. ' + r.moved.toLocaleString() + ' scrobbles moved to another track, ' + r.reordered.toLocaleString() + ' tracks reordered, '
-					+ r.skipped.toLocaleString() + ' scrobbles skipped. The database from before is saved as ' + r.snapshot + '. Preview again to check the result.';
-				groups.replaceChildren();
-				return;
+				body.innerHTML = `<div class="done-box"><h3>✓ Done</h3>
+					<dl><dt>Moved to another track</dt><dd>${plural(r.moved, 'scrobble')}</dd>
+						<dt>Artist order fixed</dt><dd>${plural(r.reordered, 'track')}</dd>
+						<dt>Skipped</dt><dd>${plural(r.skipped, 'scrobble')}</dd>
+						<dt>Copy from before</dt><dd><code>${esc(r.snapshot)}</code></dd></dl>
+					<div class="count" style="font-size:13px;margin-bottom:14px">To undo, stop Maloja and put that file in place of malojadb.sqlite.</div>
+					<button type="button" class="btn secondary" data-click="preview">Preview again</button></div>`;
+			} else if (state === 'error') {
+				body.innerHTML = `<div class="done-box failed"><h3>Something went wrong</h3>
+					<div class="desc"><code>${esc(job.error)}</code></div>
+					<button type="button" class="btn secondary" data-click="preview">Try again</button></div>`;
+			} else {
+				review(body);
 			}
-			// ready
-			showReport(job.report);
-			apply.style.display = '';
 		}
 
-		function showReport(report) {
-			const s = report.scrobbles, t = report.tracks;
-			document.getElementById('reparse_state').replaceChildren(
-				el('div', s.total.toLocaleString() + ' scrobbles: ' + s.unchanged.toLocaleString() + ' unchanged, ' + s.moved.toLocaleString() + ' would move to another track.'),
-				el('div', s.no_raw.total.toLocaleString() + ' have no raw data and stay as they are (mostly imports). '
-					+ s.discarded.count.toLocaleString() + ' would be rejected by the current rules and stay as they are. ' + s.errors.count.toLocaleString() + ' could not be parsed.'),
-				el('div', 'Untick anything you want to keep as it is. Unticking skips every scrobble of the tracks involved.')
-			);
-			const groups = document.getElementById('reparse_groups');
-			groups.replaceChildren();
-			section(groups, 'Tracks that would merge', t.merges.examples, function(m) {
-				return [m.from.map(f => trackname(f.track) + ' (' + f.scrobbles + ')').join(', '), '→ ' + trackname(m.into) + (m.existing ? '' : ' (new)')];
-			});
-			section(groups, 'Tracks that would split', t.splits.examples, function(sp) {
-				return [trackname(sp.track), '→ ' + sp.into.map(i => trackname(i.track) + ' (' + i.scrobbles + ')').join(', ')];
-			});
-			section(groups, 'Tracks that would change', t.renames.examples, function(r) {
-				return [trackname(r.track), '→ ' + trackname(r.to) + ' (' + r.changed.join(', ') + ')'];
-			});
-			section(groups, 'Artist order that differs from the credits', t.reordered.examples, function(r) {
-				return [trackname(r.track), '→ ' + r.credited.join(', ')];
-			}, 'reorder');
-			if (!groups.children.length) { groups.append(el('p', 'Nothing would change.')); }
+		function review(body) {
+			const report = job.report, s = report.scrobbles;
+			if (!rows) {
+				rows = rowsOf(report);
+				tab = Object.keys(rows).find(k => rows[k].items.length) || 'changes';
+			}
+			const k = rows[tab], shown = k.items.slice(0, limit[tab] || PAGE);
+			const notes = [];
+			if (s.discarded.count) notes.push(`${plural(s.discarded.count, 'scrobble')} would now be rejected by your rules, and stay as they are.`);
+			if (s.errors.count) notes.push(`${plural(s.errors.count, 'scrobble')} couldn't be read again, and stay as they are.`);
+			const nothing = Object.values(rows).every(k => !k.items.length);
+			body.innerHTML = `
+				<div class="stats">
+					<div class="stat"><div class="num">${s.unchanged.toLocaleString()}</div><div class="what">scrobbles stay as they are</div></div>
+					<div class="stat hl"><div class="num">${s.moved.toLocaleString()}</div><div class="what">move to another track</div></div>
+					<div class="stat hl"><div class="num">${report.tracks.reordered.count.toLocaleString()}</div><div class="what">tracks in a new artist order</div></div>
+					<div class="stat"><div class="num">${s.no_raw.total.toLocaleString()}</div><div class="what">without raw data, kept</div></div>
+				</div>
+				${notes.map(n => `<div class="notice">${esc(n)}</div>`).join('')}
+				${nothing ? '<div class="empty">Nothing would change. Your scrobbles already match your rules.</div>' : `
+				<div class="tabs">${Object.entries(rows).map(([key, r]) => `<button type="button" class="${key === tab ? 'active' : ''}" ${r.items.length ? '' : 'disabled'} data-click="tab" data-tab="${key}">${r.label} <span class="badge">${r.items.length}</span></button>`).join('')}</div>
+				${k.order && !reorder ? '<div class="notice">Fixing the artist order is switched off below, so these stay as they are.</div>' : ''}
+				<div class="selectall"><input type="checkbox" id="sel-all" data-change="all"> <label for="sel-all">All ${k.label.toLowerCase()}</label></div>
+				${shown.map((it, i) => {
+					const on = !unticked.has(tab + i);
+					return `<label class="change ${on ? '' : 'unticked'}">
+						<input type="checkbox" ${on ? 'checked' : ''} data-change="pick" data-key="${tab + i}">
+						<div class="side">${it.before}<div class="why">${esc(it.why)}</div></div>
+						<span class="arrow side">→</span>
+						<div class="side">${it.after}</div>
+						<div class="count side" style="text-align:right">${plural(it.n, 'scrobble')}</div></label>`;
+				}).join('')}
+				${k.items.length > shown.length ? `<button type="button" class="btn secondary more" data-click="more">Show ${(k.items.length - shown.length).toLocaleString()} more</button>` : ''}`}`;
+			const all = $('sel-all');
+			if (all) {
+				const ticked = k.items.filter((_, i) => !unticked.has(tab + i)).length;
+				all.checked = ticked === k.items.length;
+				all.indeterminate = ticked > 0 && ticked < k.items.length;
+			}
+			bar();
 		}
 
-		function section(parent, title, entries, describe, kind) {
-			if (!entries.length) { return; }
-			const box = el('div');
-			box.append(el('h3', title + ' (' + entries.length.toLocaleString() + ')'));
-			let target = box;
-			entries.forEach(function(entry, i) {
-				if (i == SHOWN) {
-					const more = el('details');
-					more.append(el('summary', 'Show ' + (entries.length - SHOWN).toLocaleString() + ' more'));
-					box.append(more);
-					target = more;
+		function bar() {
+			const c = counts();
+			$('lib-bar').innerHTML = `
+				<div><b>${c.picked.toLocaleString()}</b> of ${c.total.toLocaleString()} changes selected</div>
+				<label><input type="checkbox" ${reorder ? 'checked' : ''} data-change="reorder"> Fix artist order of existing tracks</label>
+				<div class="grow"></div>
+				<span class="count" style="font-size:13px">A copy of the database is saved first.</span>
+				<button type="button" class="btn secondary" data-click="discard">Discard preview</button>
+				<button type="button" class="btn" ${c.picked ? '' : 'disabled'} data-click="apply">Apply ${plural(c.picked, 'change')}</button>`;
+		}
+
+		async function poll() {
+			clearTimeout(polling);
+			try { job = await api('reparse_status', { report: 'yes' }, 'GET'); }
+			catch (e) { polling = setTimeout(poll, 5000); return; }
+			if (job.state !== 'ready') rows = null;
+			render();
+			if (['previewing', 'applying'].includes(job.state)) polling = setTimeout(poll, 1000);
+			else if (job.state === 'done' && done_pending) { done_pending = false; toast('Reparse done.'); }
+		}
+		let done_pending = false;
+
+		Lib.actions({
+			async preview() {
+				await api('reparse_preview');
+				discarded = false; rows = null; unticked = new Set(); limit = {};
+				poll();
+			},
+			tab(el) { tab = el.dataset.tab; render(); },
+			more() { limit[tab] = (limit[tab] || PAGE) + PAGE * 4; render(); },
+			pick(el) { el.checked ? unticked.delete(el.dataset.key) : unticked.add(el.dataset.key); render(); },
+			all(el) { rows[tab].items.forEach((_, i) => el.checked ? unticked.delete(tab + i) : unticked.add(tab + i)); render(); },
+			reorder(el) { reorder = el.checked; render(); },
+			discard() { discarded = true; render(); },
+			async apply(el) {
+				const skip = new Set();
+				for (const [key, k] of Object.entries(rows)) {
+					k.items.forEach((it, i) => { if (unticked.has(key + i)) it.ids.forEach(id => skip.add(id)); });
 				}
-				const row = el('div');
-				const box_ = el('input');
-				box_.type = 'checkbox';
-				box_.checked = true;
-				box_.className = 'reparse-group' + (kind ? ' ' + kind : '');
-				box_.dataset.trackIds = JSON.stringify(entry.track_ids);
-				const [from, to] = describe(entry);
-				row.append(box_, el('span', ' ' + from + ' '), el('span', to), el('span', '  [' + entry.scrobbles + ' scrobbles]', 'count'));
-				target.append(row);
-			});
-			parent.append(box);
-		}
+				el.disabled = true;
+				try { await api('reparse_apply', { skip_track_ids: [...skip], reorder }); }
+				catch (e) { el.disabled = false; return; }
+				done_pending = true;
+				poll();
+			},
+		});
 
-		function applyReparse() {
-			const skip = new Set();
-			for (const box of document.querySelectorAll('input.reparse-group')) {
-				if (!box.checked) { JSON.parse(box.dataset.trackIds).forEach(id => skip.add(id)); }
-			}
-			const reorder = document.getElementById('reparse_reorder').checked;
-			if (!confirm('Apply the current rules to your scrobbles? A snapshot of the database is saved first.')) { return; }
-			neo.xhttpreq("/apis/mlj_1/reparse_apply", {'skip_track_ids': Array.from(skip), 'reorder': reorder}, "POST", function(req) {
-				notifyCallback(req);
-				if (req.status == 200) { poll(); }
-			}, true);
-		}
-
-		document.addEventListener("DOMContentLoaded", poll);
+		poll();
+	});
 	</script>
 {% endblock %}
 
-{% block maincontent %}
-
-	<h2>Reparse existing scrobbles</h2>
-	New rules and parser settings only apply to new scrobbles. This applies them to the scrobbles you already have, using the raw data Maloja stored when each scrobble arrived.
-	Preview first: nothing changes until you press Apply. Edits you made by hand (renames, merges) are kept through <a class="textlink" href="/admin_aliases">aliases</a>; older edits from before aliases existed may show up below.
-	<br/><br/>
-	<button type="button" id="preview_button" onclick="startPreview()">Preview</button>
-	<br/><br/>
-	<div id="reparse_state"></div>
-	<div id="reparse_groups"></div>
-	<div id="reparse_apply" style="display:none;">
-		<br/>
-		<label><input type="checkbox" id="reparse_reorder" checked /> Also put the artists of existing tracks in credited order</label>
-		<br/><br/>
-		<button type="button" onclick="applyReparse()">Apply</button>
+{% block librarycontent %}
+	<div class="page-head">
+		<div class="title">
+			<h2>Reparse <span class="help" tabindex="0">?<span class="tip">New rules and settings only apply to new scrobbles. Reparse applies them to the ones you already have, using the raw data Maloja stored when each scrobble arrived.<br><br>Nothing changes until you press Apply, and a copy of the database is saved first.<br><br>Edits you made by hand are kept through <a class="textlink" href="/admin_aliases">aliases</a>. Edits from before aliases existed may show up here: untick them. Unticking a row skips every scrobble of the tracks in it.</span></span></h2>
+			<div class="lead">Apply the current rules to scrobbles you already have.</div>
+		</div>
 	</div>
-
+	<div class="stepper" id="stepper"></div>
+	<div id="reparse-body"></div>
 {% endblock %}

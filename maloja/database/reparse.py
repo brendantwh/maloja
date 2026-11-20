@@ -6,6 +6,7 @@
 # - tracks in skip_track_ids keep all their scrobbles (and their artist order)
 # - no aliases are recorded: these changes come from the parser, not from your edits
 
+import hashlib
 import json
 import os
 import time
@@ -15,9 +16,30 @@ from threading import Lock, Thread
 import sqlalchemy as sql
 from doreah.logging import log
 
-from ..pkg_global.conf import data_dir
+from ..pkg_global.conf import data_dir, malojaconfig
 from . import dbcache, sqldb
 from .sqldb import DB
+
+
+# the settings that change how a scrobble is parsed (plus the TITLE_MERGE_* ones, see parser_fingerprint)
+PARSER_SETTINGS = (
+	"ARTIST_CREDIT_ORDER", "ARTIST_KEEP_KNOWN", "ARTIST_SPLIT_KNOWN_LISTS",
+	"DELIMITERS_FEAT", "DELIMITERS_FEAT_TITLE", "DELIMITERS_FORMAL", "DELIMITERS_INFORMAL",
+	"FILTERS_REMIX", "INVALID_ARTISTS", "PARSE_REMIX_ARTISTS", "REMOVE_FROM_TITLE", "TITLE_STRIP_FEAT",
+)
+
+
+def parser_fingerprint():
+	"""A hash of the rules and parser settings in use, to tell whether a preview still matches them."""
+	from . import cla
+	from .rules import rule_key
+	settings = PARSER_SETTINGS + tuple(setting for setting, _ in cla.title_variants)
+	state = {
+		'rules': [rule_key(r) for r in cla.rules],
+		'settings': {k: malojaconfig[k] for k in settings},
+	}
+	text = json.dumps(state, sort_keys=True, default=lambda v: sorted(v) if isinstance(v, (set, frozenset)) else str(v))
+	return hashlib.sha256(text.encode()).hexdigest()
 
 
 def snapshot_database():
@@ -65,6 +87,7 @@ def apply_reparse(skip_track_ids=(), reorder=False, progress=None, batch_size=50
 		batch = timestamps[start:start + batch_size]
 		try:
 			with sqldb.SCROBBLE_LOCK, sqldb.engine.begin() as conn:
+				old_albums = {}  # old track -> its album, read once per batch
 				rows = conn.execute(sql.select(table.c.timestamp, table.c.track_id, table.c.rawscrobble).where(table.c.timestamp.in_(batch))).all()
 				for row in rows:
 					counts['total'] += 1
@@ -87,6 +110,12 @@ def apply_reparse(skip_track_ids=(), reorder=False, progress=None, batch_size=50
 					new_id = sqldb.get_track_id(newtrack, dbconn=conn)
 					if new_id != row.track_id:
 						conn.execute(table.update().where(table.c.timestamp == row.timestamp).values(track_id=new_id))
+						# the raw data often has no album, but the old track may have one (set by hand or by a rule):
+						# it moves along unless the new track already has an album, else clean_db would delete it
+						if row.track_id not in old_albums:
+							old_albums[row.track_id] = conn.execute(sql.select(DB['tracks'].c.album_id).where(DB['tracks'].c.id == row.track_id)).scalar()
+						if old_albums[row.track_id] is not None:
+							sqldb.add_track_to_album(new_id, old_albums[row.track_id], replace=False, dbconn=conn)
 						flows[row.track_id][new_id] += 1
 						counts['moved'] += 1
 						continue
@@ -129,6 +158,10 @@ class JobRunning(Exception):
 	pass
 
 
+class PreviewOutdated(Exception):
+	pass
+
+
 _job_lock = Lock()
 _job = {'state': 'idle'}
 _thread = None
@@ -140,11 +173,13 @@ def job_status(include_report=False):
 	return status
 
 
-def _start(state, work, **info):
+def _start(state, work, check=None, **info):
 	global _thread
 	with _job_lock:
 		if _job['state'] in ('previewing', 'applying'):
 			raise JobRunning(f"A reparse job is already running ({_job['state']})")
+		if check:
+			check(_job)
 		_job.clear()
 		_job.update(state=state, started=int(time.time()), progress=[0, 0], **info)
 
@@ -164,15 +199,25 @@ def _start(state, work, **info):
 
 def start_preview():
 	from .reparse_report import build_report
-	_start('previewing', lambda: {'state': 'ready', 'report': build_report(examples=None)})
+	# taken before the report is built: a rule changed while it's built makes the preview outdated too
+	_start('previewing', lambda: {'state': 'ready', 'report': build_report(examples=None)}, fingerprint=parser_fingerprint())
+
+
+def _check_preview(job):
+	# apply reparses with the rules in use now, so they have to be the ones the preview was made with
+	if job['state'] != 'ready':
+		raise PreviewOutdated("There is no preview to apply, make a new preview first")
+	if job.get('fingerprint') != parser_fingerprint():
+		raise PreviewOutdated("The rules or parser settings changed since this preview, make a new preview first")
 
 
 def start_apply(skip_track_ids=(), reorder=False):
+	"""Apply the reviewed preview: refuses if there is none, or it doesn't match the current rules and settings."""
 	def progress(done, total):
 		with _job_lock:
 			_job['progress'] = [done, total]
 	_start('applying', lambda: {'state': 'done', 'result': apply_reparse(skip_track_ids, reorder, progress=progress)},
-		skip_track_ids=sorted({int(t) for t in skip_track_ids}), reorder=bool(reorder))
+		check=_check_preview, skip_track_ids=sorted({int(t) for t in skip_track_ids}), reorder=bool(reorder))
 
 
 def wait_for_job(timeout=None):
