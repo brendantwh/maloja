@@ -13,7 +13,7 @@ from doreah.io import col
 
 basic_files = [
 	('config',	['rules/*.tsv','settings.ini','apikeys.yml','custom_css/*.css']),
-	('state',	['auth/auth.ddb','malojadb.sqlite'])
+	('state',	['auth/auth.sqlite','malojadb.sqlite'])
 ]
 expanded_files = [
 	('state',	['images'])

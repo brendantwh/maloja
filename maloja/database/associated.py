@@ -4,32 +4,20 @@
 ## directly in sql
 
 
-import csv
-import os
-
 from . import sqldb
-from ..pkg_global.conf import data_dir
 
 
-def load_associated_rules():
+def load_associated_rules(rules=None):
+	# the countas rules of the shared parser, unless given
 	# delete old
 	with sqldb.engine.begin() as conn:
 		op = sqldb.DB['associated_artists'].delete().where()
 		conn.execute(op)
 
-	# load from file
-	rawrules = []
-	try:
-		for f in os.listdir(data_dir["rules"]()):
-			if f.split('.')[-1].lower() != 'tsv': continue
-			filepath = data_dir["rules"](f)
-			with open(filepath,'r') as filed:
-				reader = csv.reader(filed,delimiter="\t")
-				rawrules += [[col for col in entry if col] for entry in reader if len(entry)>0 and not entry[0].startswith('#')]
-	except FileNotFoundError:
-		return
-
-	rules = [{'source_artist':r[1],'target_artist':r[2]} for r in rawrules if r[0]=="countas"]
+	if rules is None:
+		from . import cla
+		rules = cla.rules
+	rules = [{'source_artist':r.fields[0],'target_artist':r.fields[1]} for r in rules if r.type=="countas"]
 
 	#for rule in rules:
 	#	print(f"Rule to replace {rule['source_artist']} with {rule['target_artist']}:")

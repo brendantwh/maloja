@@ -1,0 +1,76 @@
+{% set page ='admin_aliases' %}
+{% extends "abstracts/admin.jinja" %}
+{% block title %}Maloja - Aliases{% endblock %}
+
+{% import 'snippets/links.jinja' as links %}
+
+{% block scripts %}
+	<script>
+		function deleteAlias(element, id) {
+			if (!confirm('Delete this alias? Future scrobbles with that name will no longer go to this entry.')) { return; }
+			neo.xhttpreq("/apis/mlj_1/delete_alias", {'id': id}, "POST", function(req) {
+				notifyCallback(req);
+				if (req.status == 200) { element.closest('tr').remove(); }
+			}, true);
+		}
+		function filterAliases() {
+			const type = document.getElementById('filter_type').value;
+			const text = document.getElementById('filter_text').value.toLowerCase();
+			for (const row of document.querySelectorAll('#aliases tr[data-type]')) {
+				row.style.display = ((!type || row.dataset.type == type) && row.textContent.toLowerCase().includes(text)) ? '' : 'none';
+			}
+		}
+	</script>
+{% endblock %}
+
+{% set aliases = dbc.get_aliases() %}
+
+{% block maincontent %}
+
+	<h2>Aliases</h2>
+	When you rename or merge an artist, track or album, or add or remove an artist on a track, Maloja remembers the old name.
+	Scrobbles that arrive with the old name go to the right place. Names are compared ignoring case and accents.
+	{% if not settings['LEARN_ALIASES'] %}
+	<br/><br/><b>Learning and using aliases is switched off in the settings.</b>
+	{% endif %}
+	<br/><br/>
+
+	<select id="filter_type" onchange="filterAliases()">
+		<option value="">All</option>
+		<option value="artist">Artists</option>
+		<option value="track">Tracks</option>
+		<option value="album">Albums</option>
+	</select>
+	<input type="text" id="filter_text" placeholder="Search" oninput="filterAliases()" />
+	<br/><br/>
+
+	{% if aliases %}
+	<table class="misc" id="aliases">
+		<tr><th>Type</th><th>Old name</th><th>With artists</th><th>Goes to</th><th>Learned from</th><th>Since</th><th></th></tr>
+		{% for alias in aliases %}
+		<tr data-type="{{ alias.entity_type }}">
+			<td>{{ alias.entity_type }}</td>
+			<td>{{ alias.name }}</td>
+			<td>{{ alias.artists | join(', ') }}</td>
+			<td>
+				{% if alias.target is none %}
+					<i>(gone)</i>
+				{% elif alias.entity_type == 'artist' %}
+					{{ links.link(alias.target) }}
+				{% elif alias.entity_type == 'track' %}
+					{{ links.links(alias.target.artists) }} – {{ links.link(alias.target) }}
+				{% else %}
+					{{ links.link(alias.target) }}
+				{% endif %}
+			</td>
+			<td>{{ alias.source or '' }}</td>
+			<td>{{ malojatime.timestamp_desc(alias.created_at, short=True) if alias.created_at else '' }}</td>
+			<td><a class="textlink" href="javascript:void(0)" onclick="deleteAlias(this, {{ alias.id }})">Delete</a></td>
+		</tr>
+		{% endfor %}
+	</table>
+	{% else %}
+	No aliases yet.
+	{% endif %}
+
+{% endblock %}

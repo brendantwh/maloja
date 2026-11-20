@@ -93,7 +93,7 @@ aliases = {
 	"admin": "admin_overview",
 	"manual": "admin_manual",
 	"setup": "admin_setup",
-	"issues": "admin_issues"
+	"issues": "admin_duplicates"
 }
 
 
@@ -311,6 +311,17 @@ class WaitressLogHandler():
 logging.getLogger().addHandler(WaitressLogHandler())
 
 
+def release_login_session(app):
+	# doreah keeps one login database session per thread and never gives its connection back,
+	# so once there are more server threads than pooled connections, a request waits 30 s and fails
+	def wrapper(environ, start_response):
+		try:
+			return app(environ, start_response)
+		finally:
+			auth.ScopedSession.remove()
+	return wrapper
+
+
 def run_server():
 	conf.AUX_MODE = False
 
@@ -325,7 +336,7 @@ def run_server():
 		#run(webserver, host=HOST, port=MAIN_PORT, server='waitress')
 		listen = f"{HOST}:{PORT}"
 		log(f"Listening on {listen}")
-		waitress.serve(GzipMiddleware(webserver), listen=listen, threads=THREADS)
+		waitress.serve(release_login_session(GzipMiddleware(webserver)), listen=listen, threads=THREADS)
 	except OSError:
 		log("Error. Is another Maloja process already running?")
 		raise

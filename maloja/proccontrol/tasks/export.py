@@ -6,7 +6,8 @@ from doreah.io import col
 
 def export(targetfolder=None):
 
-	from ...database.sqldb import get_scrobbles
+	from ...database.sqldb import get_scrobbles, export_aliases
+	from ...database import rules
 
 	if targetfolder is None:
 		targetfolder = os.getcwd()
@@ -17,9 +18,9 @@ def export(targetfolder=None):
 	outputfile = os.path.join(targetfolder,filename)
 	assert not os.path.exists(outputfile)
 
-	data = {'maloja':{'export_time': timestamp },'scrobbles':get_scrobbles()}
+	data = {'maloja':{'export_time': timestamp },'scrobbles':get_scrobbles(),'rules':rules.export_data(),'aliases':export_aliases()}
 	with open(outputfile,'w') as outfd:
 		json.dump(data,outfd,indent=3)
 
-	print(f"Exported {len(data['scrobbles'])} Scrobbles to {col['yellow'](outputfile)}")
+	print(f"Exported {len(data['scrobbles'])} Scrobbles, {len(data['rules']['rules'])} Rules and {len(data['aliases'])} Aliases to {col['yellow'](outputfile)}")
 	return outputfile

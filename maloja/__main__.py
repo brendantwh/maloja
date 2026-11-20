@@ -80,7 +80,7 @@ def print_settings():
 		print(col['lightblue'](k.ljust(maxlen+2)),conf.malojaconfig[k])
 
 
-@mainfunction({"l":"level","v":"version","V":"version"},flags=['version','include_images','prefer_existing'],shield=True)
+@mainfunction({"l":"level","v":"version","V":"version"},flags=['version','include_images','prefer_existing','apply','reorder'],shield=True)
 def main(*args,**kwargs):
 
 	actions = {
@@ -96,6 +96,7 @@ def main(*args,**kwargs):
 		"apidebug":apidebug.run,				# maloja apidebug
 		"parsealbums":tasks.parse_albums,		# maloja parsealbums --strategy majority
 		"reparsereport":tasks.reparse_report,	# maloja reparsereport --examples 10 --json report.json
+		"reparse":tasks.reparse,				# maloja reparse --apply --reorder
 		# aux
 		"info":print_info,
 		"settings":print_settings

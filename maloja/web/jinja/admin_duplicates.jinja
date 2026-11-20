@@ -1,0 +1,86 @@
+{% set page ='admin_duplicates' %}
+{% extends "abstracts/admin.jinja" %}
+{% block title %}Maloja - Duplicates{% endblock %}
+
+{% import 'snippets/links.jinja' as links %}
+
+{% block scripts %}
+	<style>
+		div.duplicate { margin: 0 0 20px 20px; }
+		div.duplicate table.misc { margin-left: 0; }
+		div.duplicate .origins { opacity: 0.6; }
+	</style>
+	<script>
+		function groupOf(element) { return element.closest('div.duplicate'); }
+
+		function mergeGroup(element) {
+			const group = groupOf(element);
+			const type = group.dataset.type;
+			const target = group.querySelector('input[type=radio]:checked');
+			const sources = Array.from(group.querySelectorAll('input.merge:checked')).map(b => parseInt(b.value)).filter(id => id != parseInt(target.value));
+			if (!sources.length) { notify('Nothing to merge', 'Tick at least one other entry to merge into the one you picked.', 'warning'); return; }
+			const name = target.dataset.name;
+			if (!confirm('Merge ' + sources.length + ' into "' + name + '"? The other spellings are remembered as aliases.')) { return; }
+			neo.xhttpreq("/apis/mlj_1/merge_" + type + "s", {'target_id': parseInt(target.value), 'source_ids': sources}, "POST", function(req) {
+				notifyCallback(req);
+				if (req.status == 200) { group.remove(); }
+			}, true);
+		}
+
+		function dismissGroup(element) {
+			const group = groupOf(element);
+			neo.xhttpreq("/apis/mlj_1/dismiss_duplicate", {'entity_type': group.dataset.type, 'ids': JSON.parse(group.dataset.ids)}, "POST", function(req) {
+				notifyCallback(req);
+				if (req.status == 200) { group.remove(); }
+			}, true);
+		}
+	</script>
+{% endblock %}
+
+{% set found = dbc.get_duplicates() %}
+
+{% macro origins(member) -%}
+	<span class="origins">{% for origin, n in member.origins.items() %}{{ origin }} {{ n }}{{ ', ' if not loop.last }}{% endfor %}</span>
+{%- endmacro %}
+
+{% macro group(suggestion) %}
+	<div class="duplicate" data-type="{{ suggestion.entity_type }}" data-ids="{{ suggestion.ids | tojson | forceescape }}">
+		<table class="misc">
+			<tr><th>Keep</th><th>Merge</th><th>{{ 'Artist' if suggestion.entity_type == 'artist' else 'Track' }}</th><th>Scrobbles</th><th>From</th></tr>
+			{% for m in suggestion.members %}
+			<tr>
+				<td><input type="radio" name="keep_{{ suggestion.entity_type }}_{{ suggestion.ids | join('_') }}" value="{{ m.id }}" data-name="{{ m.name or m.title }}" {{ 'checked' if loop.first }} /></td>
+				<td><input type="checkbox" class="merge" value="{{ m.id }}" checked /></td>
+				<td>
+					{% if suggestion.entity_type == 'artist' %}
+						{{ links.link(m.name) }}
+					{% else %}
+						{{ links.links(m.artists) }} – {{ links.link({'title': m.title, 'artists': m.artists}) }}
+						{% if m.length %}<span class="origins">({{ (m.length // 60) }}:{{ '%02d' % (m.length % 60) }})</span>{% endif %}
+					{% endif %}
+				</td>
+				<td>{{ m.scrobbles }}</td>
+				<td>{{ origins(m) }}</td>
+			</tr>
+			{% endfor %}
+		</table>
+		<button type="button" onclick="mergeGroup(this)">Merge</button>
+		<button type="button" onclick="dismissGroup(this)">Not the same</button>
+	</div>
+{% endmacro %}
+
+{% block maincontent %}
+
+	<h2>Possible duplicates</h2>
+	These look like the same artist or track under different spellings, for example from different players.
+	Spelling, case, accents, punctuation, "&amp;" vs "and" and a leading "The" are ignored. Tracks need the same artists; featured artists and remaster, edit or mono tags in the title are ignored, live versions and remixes are not.
+	Merging remembers the other spellings as aliases, so future scrobbles go to the right place. If a player always sends a different format, a <a class="textlink" href="/admin_rules">parser rule</a> may fit better.
+	<br/><br/>
+
+	<h2>Artists ({{ found.artists | length }})</h2>
+	{% for s in found.artists %}{{ group(s) }}{% else %}No suggestions.{% endfor %}
+
+	<h2>Tracks ({{ found.tracks | length }})</h2>
+	{% for s in found.tracks %}{{ group(s) }}{% else %}No suggestions.{% endfor %}
+
+{% endblock %}
