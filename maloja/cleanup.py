@@ -9,7 +9,9 @@ from .pkg_global.conf import data_dir, malojaconfig
 # I'm dumb
 class CleanerAgent:
 
-	def __init__(self):
+	def __init__(self,known_artist=None):
+		# optional callback: is this exact name already a known artist? (see sqldb.is_known_artist)
+		self.known_artist = known_artist
 		self.updateRules()
 
 	def updateRules(self):
@@ -58,8 +60,10 @@ class CleanerAgent:
 			allartists = allartists.split("␟")
 			if len({a.lower() for a in allartists} & {a.lower() for a in artists}) > 0:
 				artists = allartists
-		artists = list(set(artists))
-		artists.sort()
+		# main artist first, in the order they were credited
+		artists = list(dict.fromkeys(artists))
+		if not malojaconfig["ARTIST_CREDIT_ORDER"]:
+			artists.sort()
 
 		if album is not None:
 			album = self.parseAlbumtitle(album)
@@ -126,8 +130,19 @@ class CleanerAgent:
 
 
 
-		for d in (self.delimiters_feat + self.delimiters):
+		for d in self.delimiters_feat:
 			if ((" " + d + " ") in a):
+				ls = []
+				for i in a.split(" " + d + " "):
+					ls += self.parseArtists(i)
+				return ls
+
+		# names like "Simon & Garfunkel" or "AC/DC" stay whole once they are known
+		# (featuring is never protected, those are not band names)
+		for d in self.delimiters:
+			if ((" " + d + " ") in a):
+				if self.isKnownArtist(a):
+					return [a.strip()]
 				ls = []
 				for i in a.split(" " + d + " "):
 					ls += self.parseArtists(i)
@@ -135,16 +150,28 @@ class CleanerAgent:
 
 		for d in self.delimiters_formal:
 			if (d in a):
+				if self.isKnownArtist(a):
+					return [a.strip()]
 				ls = []
 				for i in a.split(d):
 					ls += self.parseArtists(i)
 				return ls
+
+		# commas and " x " are often part of a name ("Tyler, The Creator"), so these only
+		# split when every part is already a known artist ("Lady Gaga, Bradley Cooper")
+		if self.known_artist and malojaconfig["ARTIST_SPLIT_KNOWN_LISTS"]:
+			parts = [p.strip() for p in re.split(r", | x ",a,flags=re.IGNORECASE)]
+			if len(parts) > 1 and all(p and self.known_artist(p) for p in parts):
+				return [artist for p in parts for artist in self.parseArtists(p)]
 
 
 
 
 
 		return [a.strip()]
+
+	def isKnownArtist(self,a):
+		return bool(self.known_artist and malojaconfig["ARTIST_KEEP_KNOWN"] and self.known_artist(a.strip()))
 
 	def parseTitle(self,t):
 		if t.strip().lower() in self.rules_replacetitle:
@@ -214,11 +241,16 @@ class CleanerAgent:
 		# words like "with" are only a delimiter in brackets, e.g. Spotify's "One Kiss (with Dua Lipa)"
 		for delimiter in malojaconfig["DELIMITERS_FEAT_TITLE"]:
 			patterns.append(r" [\(\[]" + re.escape(delimiter) + r" (.*?)[\)\]]")
+		original = title
+		found = []
 		for pattern in patterns:
 			matches = re.finditer(pattern,title,flags=re.IGNORECASE)
 			for match in matches:
 				title = match.re.sub('',match.string) # Remove matched part
-				artists += self.parseArtists(match.group(1)) # Parse matched artist string
+				found.append((original.find(match.group(0)),self.parseArtists(match.group(1)))) # Parse matched artist string
+		# credit order: as they appear in the title, not in the order of the patterns
+		for _,matched in sorted(found,key=lambda f: f[0]):
+			artists += matched
 
 
 

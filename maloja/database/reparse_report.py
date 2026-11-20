@@ -1,7 +1,8 @@
 # read-only dry run of reparsing every scrobble from its stored rawscrobble
 # nothing in here writes to the database, uses the entity caches or takes SCROBBLE_LOCK
 # identity is compared the same way get_track_id does it (normalized title + set of
-# normalized artist names), but in memory, so tracks that don't exist yet can be grouped too
+# normalized artist names, with aliases applied), but in memory, so tracks that don't
+# exist yet can be grouped too
 
 import json
 from collections import Counter, defaultdict
@@ -10,6 +11,7 @@ import sqlalchemy as sql
 
 from . import sqldb
 from .sqldb import DB, normalize_name
+from ..pkg_global.conf import malojaconfig
 
 
 def _identity(artists, title):
@@ -46,15 +48,39 @@ def build_report(examples=10, dbconn=None):
 		track_key[row.id] = _identity(tracks[row.id]['artists'], row.title)
 		key_to_track.setdefault(track_key[row.id], row.id)
 
+	# aliases, applied like the lookups do: a real entity with that name wins over an alias
+	artist_alias, track_alias = {}, {}
+	alias_rows = dbconn.execute(sql.select(DB['aliases']).order_by(DB['aliases'].c.id)).all() if malojaconfig['LEARN_ALIASES'] else []
+	for row in alias_rows:
+		if row.entity_type == 'artist' and row.name_normalized not in known_artists and row.target_id in artistnames:
+			artist_alias.setdefault(row.name_normalized, normalize_name(artistnames[row.target_id]))
+
+	def resolve_artist(name):
+		n = normalize_name(name)
+		return n if n in known_artists else artist_alias.get(n, n)
+
+	for row in alias_rows:
+		if row.entity_type == 'track' and row.target_id in tracks:
+			key = (row.name_normalized, frozenset(resolve_artist(a) for a in json.loads(row.artists_normalized or '[]')))
+			track_alias.setdefault(key, track_key[row.target_id])
+
+	def new_identity(artists, title):
+		key = (normalize_name(title), frozenset(resolve_artist(a) for a in artists))
+		if key not in key_to_track and key in track_alias:
+			return track_alias[key]
+		return key
+
 	# walk all scrobbles
 	total, unchanged, moved = 0, 0, 0
 	no_raw = Counter()
 	discarded, errors = [], []
 	parsed = {}
 	key_display = {}
+	artist_display = {}
 	flows = defaultdict(Counter)    # current track id -> new identity -> scrobbles
 	inflows = defaultdict(Counter)  # new identity -> current track id -> scrobbles
 	artist_changes = Counter()      # (removed names, added names) -> scrobbles
+	reordered = {}                  # track id -> [credited order, scrobbles]
 	artists_before, artists_after = Counter(), Counter()
 
 	op = sql.select(
@@ -92,20 +118,25 @@ def build_report(examples=10, dbconn=None):
 			artists_after.update(old_artists)
 			continue
 
-		new_key = _identity(newtrack['artists'], newtrack['title'])
+		new_key = new_identity(newtrack['artists'], newtrack['title'])
 		key_display.setdefault(new_key, newtrack)
+		for a in newtrack['artists']:
+			artist_display.setdefault(resolve_artist(a), known_artists.get(resolve_artist(a), a))
 		flows[row.track_id][new_key] += 1
 		inflows[new_key][row.track_id] += 1
 		artists_after.update(new_key[1])
 
 		if new_key == old_key:
 			unchanged += 1
+			# same artists, but maybe credited in another order than the track shows them
+			credited = list(dict.fromkeys(resolve_artist(a) for a in newtrack['artists']))
+			if set(credited) == old_artists and credited != [normalize_name(a) for a in tracks[row.track_id]['artists']]:
+				reordered.setdefault(row.track_id, [[artist_display[n] for n in credited], 0])[1] += 1
 			continue
 		moved += 1
-		new_names = {normalize_name(a): a for a in newtrack['artists']}
 		old_names = {normalize_name(a): a for a in tracks[row.track_id]['artists']}
 		removed = tuple(sorted(old_names[n] for n in old_artists - new_key[1]))
-		added = tuple(sorted(new_names[n] for n in new_key[1] - old_artists))
+		added = tuple(sorted(artist_display.get(n, n) for n in new_key[1] - old_artists))
 		if removed or added:
 			artist_changes[(removed, added)] += 1
 
@@ -174,10 +205,9 @@ def build_report(examples=10, dbconn=None):
 	]
 	new_artist_names = {}
 	for key in inflows:
-		for a in key_display[key]['artists']:
-			n = normalize_name(a)
+		for n in key[1]:
 			if n not in known_artists:
-				new_artist_names.setdefault(n, a)
+				new_artist_names.setdefault(n, artist_display.get(n, n))
 	new_artists = [{'artist': new_artist_names[n], 'scrobbles': artists_after[n]} for n in new_artist_names]
 
 	return {
@@ -195,6 +225,14 @@ def build_report(examples=10, dbconn=None):
 			'splits': {'count': len(splits), 'scrobbles': sum(s['scrobbles'] for s in splits), 'examples': _top(splits, examples, name=lambda s: _trackname(s['track']))},
 			'renames': {'count': len(renames), 'scrobbles': sum(r['scrobbles'] for r in renames), 'examples': _top(renames, examples, name=lambda r: _trackname(r['track']))},
 			'new': new_tracks,
+			'reordered': {
+				'count': len(reordered),
+				'scrobbles': sum(n for _, n in reordered.values()),
+				'examples': _top(
+					[{'track': tracks[t], 'credited': credited, 'scrobbles': n} for t, (credited, n) in reordered.items()],
+					examples, name=lambda r: _trackname(r['track'])
+				)
+			},
 		},
 		'artists': {
 			'changes': {
@@ -205,5 +243,8 @@ def build_report(examples=10, dbconn=None):
 			'vanishing': {'count': len(vanishing), 'examples': _top(vanishing, examples, name=lambda v: v['artist'])},
 			'new': {'count': len(new_artists), 'examples': _top(new_artists, examples, name=lambda v: v['artist'])},
 		},
-		'notes': ['Albums are not compared.'],
+		'notes': [
+			'Albums are not compared.',
+			'Reordered tracks keep their stored artist order, only new tracks are stored in credited order.'
+		],
 	}

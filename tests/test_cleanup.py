@@ -11,10 +11,10 @@ PARSER_CASES = [
 	pytest.param("A feat. B", "Song", ["A", "B"], "Song", id="split-feat"),
 	pytest.param("A & B", "Song", ["A", "B"], "Song", id="split-ampersand"),
 	pytest.param("A; B", "Song", ["A", "B"], "Song", id="split-formal"),
-	pytest.param("Simon & Garfunkel", "The Sound of Silence", ["Garfunkel", "Simon"], "The Sound of Silence", id="char-band-ampersand"),
+	pytest.param("Simon & Garfunkel", "The Sound of Silence", ["Simon", "Garfunkel"], "The Sound of Silence", id="char-band-ampersand"),
 	pytest.param("AC/DC", "Back In Black", ["AC", "DC"], "Back In Black", id="char-band-slash"),
 	pytest.param("Lady Gaga, Bradley Cooper", "Shallow", ["Lady Gaga, Bradley Cooper"], "Shallow", id="char-comma"),
-	pytest.param("B & A", "Song", ["A", "B"], "Song", id="char-alphabetical-order"),
+	pytest.param("B & A", "Song", ["B", "A"], "Song", id="credit-order"),
 	pytest.param("Daft Punk", "Get Lucky (feat. Pharrell Williams)", ["Daft Punk", "Pharrell Williams"], "Get Lucky (feat. Pharrell Williams)", id="title-feat-kept"),
 	pytest.param("Calvin Harris", "One Kiss (with Dua Lipa)", ["Calvin Harris", "Dua Lipa"], "One Kiss (with Dua Lipa)", id="title-with"),
 	pytest.param("A", "Dancing with Myself", ["A"], "Dancing with Myself", id="title-with-bare-kept"),
@@ -49,6 +49,7 @@ SETTINGS_CASES = [
 	pytest.param({"TITLE_MERGE_MONO_STEREO": False}, "A", "Song - Mono", ["A"], "Song - Mono", id="mono-stereo-off"),
 	pytest.param({"TITLE_STRIP_FEAT": True}, "Daft Punk", "Get Lucky (feat. Pharrell Williams)", ["Daft Punk", "Pharrell Williams"], "Get Lucky", id="strip-feat-on"),
 	pytest.param({"TITLE_STRIP_FEAT": True}, "A", "Song (with B) - feat. C", ["A", "B", "C"], "Song", id="strip-feat-on-with-and-dash"),
+	pytest.param({"ARTIST_CREDIT_ORDER": False}, "B & A", "Song", ["A", "B"], "Song", id="credit-order-off"),
 ]
 
 
@@ -79,7 +80,7 @@ RULES_CASES = [
 	pytest.param(
 		# fixartists is keyed by title alone
 		[("fixartists", "Main␟Guest", "Collab Song")],
-		"Main", "Collab Song", ["Guest", "Main"], "Collab Song",
+		"Main", "Collab Song", ["Main", "Guest"], "Collab Song",
 		id="fixartists-by-title",
 	),
 ]
@@ -89,6 +90,30 @@ RULES_CASES = [
 def test_rules(agent_with_rules, rules, artists_in, title_in, artists_out, title_out):
 	artists, title, _ = agent_with_rules(*rules).fullclean(artists_in, title_in, None)
 	assert (artists, title) == (artists_out, title_out)
+
+
+# the database tells the parser which full names already exist (sqldb.is_known_artist)
+KNOWN_ARTISTS_CASES = [
+	pytest.param({}, "Simon & Garfunkel", ["Simon & Garfunkel"], id="known-kept-whole"),
+	pytest.param({}, "Simon & Paul", ["Simon", "Paul"], id="unknown-split"),
+	pytest.param({}, "AC/DC", ["AC/DC"], id="known-formal-kept-whole"),
+	pytest.param({}, "A feat. B", ["A", "B"], id="known-feat-still-split"),
+	pytest.param({"ARTIST_KEEP_KNOWN": False}, "Simon & Garfunkel", ["Simon", "Garfunkel"], id="keep-known-off"),
+	pytest.param({}, "Lady Gaga, Bradley Cooper", ["Lady Gaga", "Bradley Cooper"], id="comma-known-parts-split"),
+	pytest.param({}, "Lady Gaga, Someone New", ["Lady Gaga, Someone New"], id="comma-unknown-part-whole"),
+	pytest.param({}, "Tyler, The Creator", ["Tyler, The Creator"], id="comma-band-whole"),
+	pytest.param({}, "Marshmello x Bastille", ["Marshmello", "Bastille"], id="x-known-parts-split"),
+	pytest.param({}, "Malcolm X", ["Malcolm X"], id="x-in-name-whole"),
+	pytest.param({"ARTIST_SPLIT_KNOWN_LISTS": False}, "Lady Gaga, Bradley Cooper", ["Lady Gaga, Bradley Cooper"], id="split-known-lists-off"),
+]
+
+
+@pytest.mark.parametrize("values,artists_in,artists_out", KNOWN_ARTISTS_CASES)
+def test_known_artists(settings, values, artists_in, artists_out):
+	known = {"Simon & Garfunkel", "AC/DC", "A feat. B", "Simon", "Garfunkel", "Paul", "A", "B", "Lady Gaga", "Bradley Cooper", "The Creator", "Marshmello", "Bastille", "Malcolm"}
+	settings(**values)
+	artists, _, _ = cleanup.CleanerAgent(known_artist=lambda name: name in known).fullclean(artists_in, "Song", None)
+	assert artists == artists_out
 
 
 def test_cleanup_compiles_without_warnings():
