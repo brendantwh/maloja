@@ -3,7 +3,6 @@ from ._exceptions import *
 from .. import database
 import datetime
 from ._apikeys import apikeystore
-from ..database.exceptions import DuplicateScrobble, DuplicateTimestamp
 
 from ..pkg_global.conf import malojaconfig
 
@@ -26,8 +25,6 @@ class Listenbrainz(APIHandler):
 			InvalidAuthException: (401, {"code": 401, "error": "Incorrect Authorization"}),
 			InvalidMethodException: (200, {"code": 200, "error": "Invalid Method"}),
 			MalformedJSONException: (400, {"code": 400, "error": "Invalid JSON document submitted."}),
-			DuplicateScrobble: (200, {"status": "ok"}),
-			DuplicateTimestamp: (409, {"error": "Scrobble with the same timestamp already exists."}),
 			Exception: (500, {"code": 500, "error": "Unspecified server error."})
 		}
 

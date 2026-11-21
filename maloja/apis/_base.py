@@ -100,9 +100,14 @@ class APIHandler:
 	def scrobble(self,rawscrobble,client=None):
 
 		# fixing etc is handled by the main scrobble function
+		# returns None when the scrobble was skipped. we report success for those so clients
+		# don't retry them forever, and the rest of a batch still goes through
 		try:
 			return database.incoming_scrobble(rawscrobble,api=self.__apiname__,client=client)
 		except database.exceptions.DoubleScrobble:
-			# report success so clients don't retry, and the rest of a batch still goes through
 			log(f"Ignored double scrobble from {self.__apiname__} API: {rawscrobble}")
-			return None
+		except database.exceptions.DuplicateScrobble:
+			log(f"Ignored scrobble from {self.__apiname__} API that is already in the database: {rawscrobble}")
+		except database.exceptions.DuplicateTimestamp:
+			log(f"Ignored scrobble from {self.__apiname__} API because a different track has the same timestamp: {rawscrobble}")
+		return None
