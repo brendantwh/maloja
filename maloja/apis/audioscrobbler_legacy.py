@@ -92,12 +92,13 @@ class AudioscrobblerLegacy(APIHandler):
 				'track_title':titlestr,
 				'scrobble_time':timestamp,
 			}
-			if album_key in keys:
-				scrobble['album_name'] = keys[album_key]
-			if length_key in keys:
-				scrobble['track_length'] = keys[length_key]
+			if keys.get(album_key):
+				scrobble['album_title'] = keys[album_key]
+			try:
+				scrobble['track_length'] = int(keys[length_key])
+			except (KeyError, ValueError):
+				pass
 
-			#database.createScrobble(artists,title,timestamp)
 			self.scrobble(scrobble, client=client)
 		return 200,"OK\n"
 
