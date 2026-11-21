@@ -33,7 +33,8 @@ class AudioscrobblerLegacy(APIHandler):
 
 	def get_method(self,pathnodes,keys):
 		if keys.get("hs") == 'true': return 'handshake'
-		else: return pathnodes[0]
+		elif pathnodes: return pathnodes[0]
+		else: raise InvalidMethodException()
 
 	def handshake(self,pathnodes,keys):
 		auth = keys.get("a")
@@ -115,17 +116,20 @@ class AudioscrobblerLegacy(APIHandler):
 		# is minimal
 		if (expected_key, ts_int) in self.seen_tokens:
 			return False
-		else:
-			self.seen_tokens.add((expected_key, ts_int))
 
 		expected_token = md5(md5(expected_key) + ts)
-		return received_token == expected_token
+		if not hmac.compare_digest(str(received_token), expected_token):
+			return False
+		# only remember tokens that matched, or a wrong handshake would block the real one
+		self.seen_tokens.add((expected_key, ts_int))
+		return True
 
 	def generate_key(self,client):
 		return _sessions.create_session(client,api="audioscrobbler_legacy")
 
 
 import hashlib
+import hmac
 
 def md5(input):
 	m = hashlib.md5()
