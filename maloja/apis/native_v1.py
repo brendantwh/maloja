@@ -151,11 +151,12 @@ errors = {
 		}
 	}),
 	# for http errors, use their status code
-	Exception: lambda e: ((e.status_code if hasattr(e,'statuscode') else 500),{
+	Exception: lambda e: (getattr(e,'status_code',500),{
 		"status":"failure",
 		"error":{
 			'type':'unknown_error',
-			'value':e.__repr__(),
+			# the full error can contain internals like sql, that only goes into the log
+			'value':type(e).__name__,
 			'desc':"The server has encountered an exception."
 		}
 	})
@@ -168,7 +169,7 @@ def catch_exceptions(func):
 		try:
 			return func(*args,**kwargs)
 		except Exception as e:
-			print(traceback.format_exc())
+			log(f"Error in API function {func.__name__}: {traceback.format_exc()}")
 			for etype in errors:
 				if isinstance(e,etype):
 					errorhandling = errors[etype](e)
