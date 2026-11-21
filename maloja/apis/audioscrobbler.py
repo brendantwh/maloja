@@ -2,6 +2,7 @@ from ._base import APIHandler
 from ._exceptions import *
 from .. import database
 from ._apikeys import apikeystore
+from . import _sessions
 
 from bottle import response
 
@@ -16,8 +17,6 @@ class Audioscrobbler(APIHandler):
 
 	def init(self):
 
-		# no need to save these on disk, clients can always request a new session
-		self.mobile_sessions = {}
 		self.methods = {
 			"auth.getMobileSession":self.authmobile,
 			"track.scrobble":self.submit_scrobble,
@@ -44,14 +43,7 @@ class Audioscrobbler(APIHandler):
 		return keys.get("method")
 
 	def generate_key(self,client):
-		key = "".join(
-		    str(
-		        random.choice(
-		            list(range(10)) + list("abcdefghijklmnopqrstuvwxyz") +
-		            list("ABCDEFGHIJKLMNOPQRSTUVWXYZ"))) for _ in range(64))
-
-		self.mobile_sessions[key] = client
-		return key
+		return _sessions.create_session(client,api="audioscrobbler")
 
 	def authmobile(self,pathnodes,keys):
 		token = keys.get("authToken")
@@ -96,10 +88,7 @@ class Audioscrobbler(APIHandler):
 			raise BadAuthException()
 
 	def get_client(self,keys):
-		key = keys.get("sk")
-		if key is None:
-			raise InvalidSessionKey()
-		client = self.mobile_sessions.get(key)
+		client = _sessions.get_client(keys.get("sk"),api="audioscrobbler")
 		if not client:
 			raise InvalidSessionKey()
 		return client
@@ -152,7 +141,6 @@ class Audioscrobbler(APIHandler):
 
 
 import hashlib
-import random
 
 def to_int(value):
 	try:

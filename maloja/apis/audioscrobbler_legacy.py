@@ -2,6 +2,7 @@ from ._base import APIHandler
 from ._exceptions import *
 from .. import database
 from ._apikeys import apikeystore
+from . import _sessions
 import time
 
 from bottle import request
@@ -16,8 +17,6 @@ class AudioscrobblerLegacy(APIHandler):
 
 	def init(self):
 
-		# no need to save these on disk, clients can always request a new session
-		self.mobile_sessions = {}
 		self.seen_tokens = set()
 		self.methods = {
 			"handshake":self.handshake,
@@ -63,16 +62,17 @@ class AudioscrobblerLegacy(APIHandler):
 		# I see no implementation in the other compatible APIs, so I have just
 		# created a route that always says it was successful except if the
 		# session is invalid
-		if keys.get("s") is None or keys.get("s") not in self.mobile_sessions:
+		self.get_client(keys)
+		return 200,"OK\n"
+
+	def get_client(self,keys):
+		client = _sessions.get_client(keys.get("s"),api="audioscrobbler_legacy")
+		if not client:
 			raise InvalidSessionKey()
-		else:
-			return 200,"OK\n"
+		return client
 
 	def submit_scrobble(self,pathnodes,keys):
-		key = keys.get("s")
-		if key is None or key not in self.mobile_sessions:
-			raise InvalidSessionKey()
-		client = self.mobile_sessions.get(key)
+		client = self.get_client(keys)
 		for count in range(50):
 			artist_key = f"a[{count}]"
 			album_key = f"b[{count}]"
@@ -122,18 +122,10 @@ class AudioscrobblerLegacy(APIHandler):
 		return received_token == expected_token
 
 	def generate_key(self,client):
-		key = "".join(
-		    str(
-		        random.choice(
-		            list(range(10)) + list("abcdefghijklmnopqrstuvwxyz") +
-		            list("ABCDEFGHIJKLMNOPQRSTUVWXYZ"))) for _ in range(64))
-
-		self.mobile_sessions[key] = client
-		return key
+		return _sessions.create_session(client,api="audioscrobbler_legacy")
 
 
 import hashlib
-import random
 
 def md5(input):
 	m = hashlib.md5()
