@@ -681,15 +681,21 @@ def album_info_external(k_filter, k_limit, k_delimit, k_amount):
 	return database.album_info(**ckeys)
 
 
+def string_list(value):
+	# json bodies send a real list, form-encoded requests a single string.
+	# nimrodel calls the annotation as a converter, and list("Daft Punk") would split it into letters
+	return value if isinstance(value,list) else [value]
+
+
 @api.post("newscrobble")
 @auth.authenticated_function(alternate=api_key_correct,api=True,pass_auth_result_as='auth_result')
 @catch_exceptions
 def post_scrobble(
 		artist:Multi=None,
-		artists:list=[],
+		artists:string_list=[],
 		title:str="",
 		album:str=None,
-		albumartists:list=None,
+		albumartists:string_list=None,
 		duration:int=None,
 		length:int=None,
 		time:int=None,
