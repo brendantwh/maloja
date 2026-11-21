@@ -1,9 +1,7 @@
 from ._apikeys import apikeystore
 
 
-import copy
-from bottle import redirect, request, response
-from urllib.parse import urlencode
+from bottle import response
 
 
 
@@ -27,25 +25,12 @@ def init_apis(server):
 		api.mount(server=server,path="apis/"+api.__apipath__)
 
 	for api in standardized_apis:
-		aliases = api.__aliases__
-		canonical = aliases[0]
-		api.nimrodelapi.mount(server=server,path="apis/" + canonical)
-
-		# redirects
-		for alias in aliases[1:]:
-			altpath = "/apis/" + alias + "/<pth:path>"
-			altpath_empty = "/apis/" + alias
-			altpath_empty_cl = "/apis/" + alias + "/"
-
-			def alias_api(pth=""):
-				redirect("/apis/" + canonical + "/" + pth + "?" + urlencode(request.query))
-
-			server.get(altpath)(alias_api)
-			server.post(altpath)(alias_api)
-			server.get(altpath_empty)(alias_api)
-			server.post(altpath_empty)(alias_api)
-			server.get(altpath_empty_cl)(alias_api)
-			server.post(altpath_empty_cl)(alias_api)
+		# serve every alias directly: a redirect would turn POST into GET and lose the scrobble,
+		# and many clients don't follow redirects at all
+		for alias in api.__aliases__:
+			api.nimrodelapi.mount(server=server,path="apis/" + alias)
+		# each mount registers the api again, but the explorer should list it once
+		server._apis[:] = list(dict.fromkeys(server._apis))
 
 	def invalid_api(pth=''):
 		response.status = 404
