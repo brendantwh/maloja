@@ -3,7 +3,6 @@ import os
 from threading import Thread
 from importlib import resources
 import time
-from magic import from_file
 from PIL import Image, ImageOps
 
 
@@ -172,9 +171,17 @@ def static_image(pth):
 	resp.set_header("Cache-Control", "public, max-age=86400")
 	return resp
 
+def image_mimetype(path):
+	# cached files have no extension, so read the type from the file itself
+	try:
+		with Image.open(path) as img:
+			return Image.MIME.get(img.format, "application/octet-stream")
+	except (OSError, ValueError):
+		return "application/octet-stream"
+
 @webserver.route("/cacheimages/<uuid>")
 def static_proxied_image(uuid):
-	mimetype = from_file(os.path.join(data_dir['cache']('images'),uuid),True)
+	mimetype = image_mimetype(os.path.join(data_dir['cache']('images'),uuid))
 	resp = static_file(uuid,root=data_dir['cache']('images'),mimetype=mimetype)
 	if resp.status_code in (200, 304):
 		# file names are random and never reused, so the content behind a url never changes
