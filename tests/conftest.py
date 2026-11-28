@@ -69,3 +69,46 @@ def agent_with_rules():
 		return CleanerAgent(rules=parsed)
 
 	return make
+
+
+@pytest.fixture
+def api(db, monkeypatch):
+	# the scrobbler apis on a fresh bottle app, called directly through wsgi
+	import io
+	import json as jsonlib
+	from urllib.parse import urlencode
+	from wsgiref.util import setup_testing_defaults
+
+	import bottle
+	from maloja.apis import apikeystore, init_apis
+
+	monkeypatch.setattr(apikeystore, "keys", {"testclient": "testkey"})
+	monkeypatch.setattr(apikeystore, "write_to_file", lambda: None)
+	app = bottle.Bottle()
+	init_apis(app)
+
+	def call(method, path, query=None, form=None, json=None, headers=None):
+		body = b""
+		environ = {"REQUEST_METHOD": method, "PATH_INFO": path, "QUERY_STRING": urlencode(query or {})}
+		if form is not None:
+			body = urlencode(form).encode()
+			environ["CONTENT_TYPE"] = "application/x-www-form-urlencoded"
+		elif json is not None:
+			body = jsonlib.dumps(json).encode()
+			environ["CONTENT_TYPE"] = "application/json"
+		for name, value in (headers or {}).items():
+			environ["HTTP_" + name.upper().replace("-", "_")] = value
+		environ["CONTENT_LENGTH"] = str(len(body))
+		environ["wsgi.input"] = io.BytesIO(body)
+		setup_testing_defaults(environ)
+
+		result = {}
+
+		def start_response(status, response_headers, exc_info=None):
+			result["status"] = int(status.split()[0])
+			result["headers"] = dict(response_headers)
+
+		text = b"".join(app(environ, start_response)).decode()
+		return result["status"], result["headers"], text
+
+	return call

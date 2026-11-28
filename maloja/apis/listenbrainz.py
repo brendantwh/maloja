@@ -3,7 +3,6 @@ from ._exceptions import *
 from .. import database
 import datetime
 from ._apikeys import apikeystore
-from ..database.exceptions import DuplicateScrobble, DuplicateTimestamp
 
 from ..pkg_global.conf import malojaconfig
 
@@ -26,12 +25,12 @@ class Listenbrainz(APIHandler):
 			InvalidAuthException: (401, {"code": 401, "error": "Incorrect Authorization"}),
 			InvalidMethodException: (200, {"code": 200, "error": "Invalid Method"}),
 			MalformedJSONException: (400, {"code": 400, "error": "Invalid JSON document submitted."}),
-			DuplicateScrobble: (200, {"status": "ok"}),
-			DuplicateTimestamp: (409, {"error": "Scrobble with the same timestamp already exists."}),
 			Exception: (500, {"code": 500, "error": "Unspecified server error."})
 		}
 
 	def get_method(self,pathnodes,keys):
+		if not pathnodes:
+			raise InvalidMethodException()
 		return pathnodes.pop(0)
 
 	def submit(self,pathnodes,keys):
@@ -53,38 +52,19 @@ class Listenbrainz(APIHandler):
 
 		if listentype == "playing_now":
 			return 200,{"status":"ok"}
-		elif listentype in ["single","import"]:
-			for listen in payload:
-				try:
-					metadata = listen["track_metadata"]
-					artiststr, titlestr = metadata["artist_name"], metadata["track_name"]
-					albumstr = metadata.get("release_name")
-					additional = metadata.get("additional_info",{})
-					try:
-						timestamp = int(listen["listened_at"])
-					except Exception:
-						timestamp = None
-				except Exception:
-					raise MalformedJSONException()
+		if listentype not in ["single","import"] or not isinstance(payload,list):
+			raise MalformedJSONException()
 
-				extrafields = {
-					# fields that will not be consumed by regular scrobbling
-					# will go into 'extra'
-					k:additional[k]
-					for k in ['track_mbid', 'release_mbid', 'artist_mbids','recording_mbid','tags']
-					if k in additional
-				}
+		# check the whole submission first, so a bad listen doesn't leave half of it written
+		rawscrobbles = [listen_to_rawscrobble(listen) for listen in payload]
+		for rawscrobble in rawscrobbles:
+			try:
+				self.scrobble(rawscrobble,client=client)
+			except database.exceptions.MissingScrobbleParameters:
+				# the parser removed everything, e.g. a rule that ignores the artist
+				pass
 
-				self.scrobble({
-					'track_artists':[artiststr],
-					'track_title':titlestr,
-					'album_title':albumstr,
-					'scrobble_time':timestamp,
-					'track_length': additional.get("duration"),
-					**extrafields
-				},client=client)
-
-			return 200,{"status":"ok"}
+		return 200,{"status":"ok"}
 
 
 	def validate_token(self,pathnodes,keys):
@@ -107,3 +87,51 @@ class Listenbrainz(APIHandler):
 			if auth.startswith('Token '):
 				return auth.replace("Token ","",1).strip()
 		raise BadAuthException()
+
+
+def listen_to_rawscrobble(listen):
+	try:
+		metadata = listen["track_metadata"]
+		artiststr, titlestr = metadata["artist_name"], metadata["track_name"]
+	except (KeyError, TypeError):
+		raise MalformedJSONException()
+	if not isinstance(artiststr,str) or not isinstance(titlestr,str) or not artiststr.strip() or not titlestr.strip():
+		raise MalformedJSONException()
+	additional = metadata.get("additional_info")
+	if not isinstance(additional,dict):
+		additional = {}
+
+	try:
+		timestamp = int(listen["listened_at"])
+	except (KeyError, TypeError, ValueError):
+		timestamp = None
+
+	rawscrobble = {
+		'track_artists':[artiststr],
+		'track_title':titlestr,
+		'scrobble_time':timestamp,
+		# fields that will not be consumed by regular scrobbling will go into 'extra'
+		**{k:additional[k] for k in ['track_mbid', 'release_mbid', 'artist_mbids','recording_mbid','tags'] if k in additional}
+	}
+
+	if metadata.get("release_name"):
+		rawscrobble['album_title'] = metadata["release_name"]
+		albumartists = additional.get("release_artist_names") or additional.get("release_artist_name")
+		if isinstance(albumartists,str):
+			albumartists = [albumartists]
+		if albumartists:
+			rawscrobble['album_artists'] = albumartists
+
+	# the spec uses milliseconds, some clients send seconds
+	length = None
+	try:
+		if additional.get("duration_ms") is not None:
+			length = int(additional["duration_ms"]) // 1000
+		elif additional.get("duration") is not None:
+			length = int(additional["duration"])
+	except (TypeError, ValueError):
+		pass
+	if length:
+		rawscrobble['track_length'] = length
+
+	return rawscrobble

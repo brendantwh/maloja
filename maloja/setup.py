@@ -45,8 +45,9 @@ def copy_initial_local_files():
 
 charset = list(range(10)) + list("abcdefghijklmnopqrstuvwxyz") + list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 def randomstring(length=32):
-	import random
-	return "".join(str(random.choice(charset)) for _ in range(length))
+	# these are passwords and api keys, so they need a cryptographic random source
+	import secrets
+	return "".join(str(secrets.choice(charset)) for _ in range(length))
 
 
 def setup():
@@ -77,7 +78,9 @@ def setup():
 		if len(apikeystore) == 0:
 			answer = ask("Do you want to set up a key to enable scrobbling? Your scrobble extension needs that key so that only you can scrobble tracks to your database.",default=True,skip=SKIP)
 			if answer:
-				key = apikeystore.generate_key('default')
+				# not apikeystore.generate_key, which uses the non-cryptographic random module
+				key = randomstring(apikeystore.key_length)
+				apikeystore.add_key('default',key)
 				print("Your API Key: " + col["yellow"](key))
 
 		# PASSWORD
