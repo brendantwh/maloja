@@ -919,7 +919,7 @@ def edit_scrobble(scrobble_id: int, scrobbleupdatedict: dict, dbconn=None) -> bo
 	dbentry = scrobble_dict_to_db(scrobbleupdatedict,dbconn=dbconn)
 	dbentry = {k: v for k, v in dbentry.items() if v}
 
-	print("Updating scrobble", dbentry)
+	log(f"Updating scrobble {scrobble_id}: {dbentry}")
 
 	with SCROBBLE_LOCK:
 

@@ -29,7 +29,6 @@ RUN \
 	apk add --no-cache \
 		python3 \
 		py3-lxml \
-		libmagic \
 		tzdata && \
   echo "" && \
 	echo "**** install pip dependencies ****" && \
